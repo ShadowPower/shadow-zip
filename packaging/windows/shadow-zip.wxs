@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Shadow Zip" Manufacturer="Shadow Zip" Version="0.1.0" UpgradeCode="11111111-2222-3333-4444-555555555555">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Shadow Zip is already installed." />
+    <Feature Id="Main" Title="Shadow Zip" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentGroupRef Id="FileAssociations" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="Shadow Zip" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Component Id="ShadowZipExe">
+        <File Source="target/release/shadow-zip.exe" />
+      </Component>
+    </ComponentGroup>
+    <ComponentGroup Id="FileAssociations" Directory="INSTALLFOLDER">
+      <Component Id="ZipAssociation">
+        <RegistryValue Root="HKCU" Key="Software\Classes\.zip" Value="ShadowZip.Archive" Type="string" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\ShadowZip.Archive\shell\open\command" Value="&quot;[INSTALLFOLDER]shadow-zip.exe&quot; &quot;%1&quot;" Type="string" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

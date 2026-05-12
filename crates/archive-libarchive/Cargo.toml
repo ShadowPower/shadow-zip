@@ -1,0 +1,12 @@
+[package]
+name = "shadow-zip-archive-libarchive"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+shadow-zip-archive-core.workspace = true
+shadow-zip-domain.workspace = true
+
+[lints]
+workspace = true

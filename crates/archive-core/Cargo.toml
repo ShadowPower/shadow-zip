@@ -1,0 +1,22 @@
+[package]
+name = "shadow-zip-archive-core"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+chrono.workspace = true
+fs2.workspace = true
+fs-err.workspace = true
+path-clean.workspace = true
+serde_json.workspace = true
+shadow-zip-domain.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+rstest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

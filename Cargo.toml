@@ -1,0 +1,84 @@
+[workspace]
+members = [
+    "crates/app",
+    "crates/ui",
+    "crates/domain",
+    "crates/task-engine",
+    "crates/archive-core",
+    "crates/archive-zip",
+    "crates/archive-7z",
+    "crates/archive-tar",
+    "crates/archive-rar",
+    "crates/archive-libarchive",
+    "crates/preview",
+    "crates/cache",
+    "crates/i18n",
+    "crates/platform",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+publish = false
+
+[workspace.dependencies]
+anyhow = "1"
+bitflags = "2"
+chrono = { version = "0.4", default-features = false, features = ["serde", "std"] }
+chardetng = "0.1"
+directories = "6"
+encoding_rs = "0.8"
+fast_image_resize = "5"
+flate2 = "1"
+fs2 = "0.4"
+fs-err = "3"
+hex = "0.4"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp", "tiff", "ico", "avif"] }
+notify-rust = "4"
+opener = { version = "0.7", features = ["reveal"] }
+parking_lot = "0.12"
+path-clean = "1"
+sevenz-rust2 = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tar = "0.4"
+tempfile = "3"
+thiserror = "2"
+unrar = "0.5"
+uuid = { version = "1", features = ["v4", "serde"] }
+walkdir = "2"
+which = "8"
+xz2 = "0.1"
+zip = { version = "4", default-features = false, features = ["deflate", "deflate64", "bzip2", "aes-crypto", "zstd", "time"] }
+zstd = "0.13"
+shadow-zip-domain = { path = "crates/domain" }
+shadow-zip-task-engine = { path = "crates/task-engine" }
+shadow-zip-archive-core = { path = "crates/archive-core" }
+shadow-zip-archive-zip = { path = "crates/archive-zip" }
+shadow-zip-archive-7z = { path = "crates/archive-7z" }
+shadow-zip-archive-tar = { path = "crates/archive-tar" }
+shadow-zip-archive-rar = { path = "crates/archive-rar" }
+shadow-zip-archive-libarchive = { path = "crates/archive-libarchive" }
+shadow-zip-preview = { path = "crates/preview" }
+shadow-zip-cache = { path = "crates/cache" }
+shadow-zip-i18n = { path = "crates/i18n" }
+shadow-zip-platform = { path = "crates/platform" }
+shadow-zip-ui = { path = "crates/ui" }
+
+gpui = "0.2.2"
+gpui-component = "0.5.1"
+
+[workspace.dependencies.pretty_assertions]
+version = "1"
+
+[workspace.dependencies.rstest]
+version = "0.26"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+todo = "deny"
+dbg_macro = "deny"

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Shadow Zip
+Comment=Open, preview, test, create, and extract archives
+Exec=shadow-zip %f
+Icon=shadow-zip
+Categories=Utility;Archiving;Compression;
+MimeType=application/zip;application/x-7z-compressed;application/x-tar;application/gzip;application/x-xz;application/zstd;application/vnd.rar;
+Terminal=false

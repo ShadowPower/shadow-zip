@@ -1,0 +1,175 @@
+# Build artifacts
+/target/
+/debug/
+/release/
+**/target/
+
+# Rust and Cargo
+**/*.rs.bk
+*.pdb
+*.dSYM/
+*.profraw
+*.profdata
+coverage/
+tarpaulin-report.html
+cobertura.xml
+lcov.info
+
+# Keep Cargo.lock for this application workspace.
+#! Cargo.lock
+
+# Local Cargo configuration and credentials
+.cargo/.package-cache/
+.cargo/advisory-db/
+credentials.toml
+.crates.toml
+.crates2.json
+
+# Generated binaries and installers
+*.exe
+*.dll
+*.dylib
+*.so
+*.a
+*.lib
+*.app/
+*.msi
+*.msix
+*.appx
+*.deb
+*.rpm
+*.pkg
+*.dmg
+*.AppImage
+*.snap
+*.tar.gz
+*.tar.xz
+*.zip
+*.7z
+
+# Packaging and signing outputs
+/dist/
+/build/
+/out/
+/artifacts/
+/releases/
+/packaging/**/target/
+/packaging/**/dist/
+/packaging/**/*.wixpdb
+/packaging/**/*.wixobj
+*.cer
+*.pfx
+*.p12
+*.pem
+*.key
+*.keystore
+*.jks
+*.sig
+*.asc
+
+# Application runtime data
+/.shadow-zip/
+/shadow-zip-cache/
+/cache/
+/logs/
+*.log
+*.trace
+*.pid
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+secrets/
+config.local.*
+settings.local.*
+
+# Test fixtures that are often generated locally
+/tmp/
+/temp/
+/scratch/
+/fixtures/generated/
+/test-output/
+/test-results/
+/snapshots/generated/
+
+# Archive extraction scratch files
+__MACOSX/
+*.part
+*.crdownload
+*.download
+*.extracting
+
+# Editors and IDEs
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.example.json
+.idea/
+*.iml
+*.code-workspace
+.fleet/
+.zed/
+
+# Rust analyzer and language servers
+rust-project.json
+.rust-analyzer/
+
+# Operating system files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Windows shortcuts and metadata
+*.lnk
+*.url
+*.Zone.Identifier
+
+# Linux desktop trash and thumbnails
+.Trash-*/
+.nfs*
+
+# Node or web tooling, in case packaging/docs add it later
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.yarn/
+!.yarn/releases/
+!.yarn/plugins/
+!.yarn/sdks/
+!.yarn/versions/
+dist-ssr/
+.vite/
+
+# Python helper tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Misc tool caches
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+.sccache/
+.clippy-driver/

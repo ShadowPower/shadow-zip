@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>Shadow Zip</string>
+  <key>CFBundleIdentifier</key>
+  <string>dev.shadowzip.app</string>
+  <key>CFBundleVersion</key>
+  <string>0.1.0</string>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Archive</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.zip-archive</string>
+        <string>org.7-zip.7-zip-archive</string>
+        <string>public.tar-archive</string>
+        <string>com.rarlab.rar-archive</string>
+      </array>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+    </dict>
+  </array>
+</dict>
+</plist>

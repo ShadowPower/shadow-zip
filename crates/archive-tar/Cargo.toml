@@ -1,0 +1,16 @@
+[package]
+name = "shadow-zip-archive-tar"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+flate2.workspace = true
+shadow-zip-archive-core.workspace = true
+shadow-zip-domain.workspace = true
+tar.workspace = true
+xz2.workspace = true
+zstd.workspace = true
+
+[lints]
+workspace = true
