@@ -19,16 +19,24 @@ use shadow_zip_i18n::Locale;
 use shadow_zip_platform::{NoopPlatformIntegration, PlatformConfig};
 use shadow_zip_preview::{PreviewLimits, PreviewRequest, PreviewService};
 use shadow_zip_task_engine::TaskEngine;
-use shadow_zip_ui::Workbench;
+use shadow_zip_ui::{Workbench, WorkbenchActions};
 
 fn main() {
     let bootstrap = Bootstrap::load();
     Application::new().run(move |cx| {
         let locale = bootstrap.locale;
-        cx.open_window(WindowOptions::default(), |_window, cx| {
-            cx.new(|_cx| Workbench::new(locale))
-        })
+        let controller = bootstrap.controller.clone();
+        let bounds = Bounds::centered(None, size(px(1180.0), px(760.0)), cx);
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(px(920.0), px(620.0))),
+                ..Default::default()
+            },
+            |_window, cx| cx.new(|_cx| Workbench::with_actions(locale, controller)),
+        )
         .expect("open main window");
+        cx.activate(true);
     });
 }
 
@@ -59,12 +67,12 @@ pub struct AppController {
     preview_service: PreviewService,
     preflight_service: PreflightService,
     cache_service: CacheService,
-    platform: NoopPlatformIntegration,
+    _platform: NoopPlatformIntegration,
     sessions: parking_lot::Mutex<BTreeMap<SessionId, ArchiveSession>>,
     recent_files: parking_lot::Mutex<Vec<RecentFile>>,
     diagnostics: parking_lot::Mutex<Vec<DiagnosticEvent>>,
     config: AppConfig,
-    platform_config: PlatformConfig,
+    _platform_config: PlatformConfig,
 }
 
 impl AppController {
@@ -91,12 +99,12 @@ impl AppController {
             }),
             preflight_service: PreflightService::new(config.security.clone()),
             cache_service: CacheService::new(CacheConfig::with_root(default_cache_root())),
-            platform: NoopPlatformIntegration,
+            _platform: NoopPlatformIntegration,
             sessions: parking_lot::Mutex::new(BTreeMap::new()),
             recent_files: parking_lot::Mutex::new(Vec::new()),
             diagnostics: parking_lot::Mutex::new(Vec::new()),
             config,
-            platform_config,
+            _platform_config: platform_config,
         }
     }
 
@@ -200,7 +208,7 @@ impl AppController {
         recent.truncate(self.config.recent_files.max_items);
     }
 
-    fn record_error(&self, area: impl Into<String>, error: &ArchiveError) {
+    fn _record_error(&self, area: impl Into<String>, error: &ArchiveError) {
         self.diagnostics.lock().push(DiagnosticEvent {
             timestamp_unix_ms: now_ms(),
             area: area.into(),
@@ -359,6 +367,36 @@ impl AppController {
         }
         let plan = self.preview_service.plan(&request, stream.access_cost);
         Ok(self.task_engine.enqueue(plan, TaskPriority::UserBlocking))
+    }
+}
+
+impl WorkbenchActions for AppController {
+    fn open_archive(&self, path: PathBuf) -> Result<ArchiveSessionSnapshot, ArchiveError> {
+        AppController::open_archive(self, path)
+    }
+
+    fn extract_all(
+        &self,
+        session_id: SessionId,
+        destination: PathBuf,
+    ) -> Result<uuid::Uuid, ArchiveError> {
+        self.extract(session_id, None, destination, ExtractOptions::default())
+    }
+
+    fn test_archive(&self, session_id: SessionId) -> Result<uuid::Uuid, ArchiveError> {
+        AppController::test_archive(self, session_id)
+    }
+
+    fn request_preview(
+        &self,
+        session_id: SessionId,
+        entry_id: EntryId,
+    ) -> Result<uuid::Uuid, ArchiveError> {
+        AppController::request_preview(self, session_id, entry_id)
+    }
+
+    fn recent_files(&self) -> Vec<RecentFile> {
+        AppController::recent_files(self)
     }
 }
 

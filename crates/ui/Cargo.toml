@@ -9,6 +9,10 @@ gpui.workspace = true
 gpui-component.workspace = true
 shadow-zip-domain.workspace = true
 shadow-zip-i18n.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true
