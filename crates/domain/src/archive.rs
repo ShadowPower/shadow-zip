@@ -333,10 +333,10 @@ impl DirectoryTree {
                     total_uncompressed_bytes: 0,
                     children: Vec::new(),
                 });
-            if let Some(parent_node) = self.nodes.get_mut(&parent) {
-                if !parent_node.children.contains(&current) {
-                    parent_node.children.push(current.clone());
-                }
+            if let Some(parent_node) = self.nodes.get_mut(&parent)
+                && !parent_node.children.contains(&current)
+            {
+                parent_node.children.push(current.clone());
             }
         }
     }

@@ -354,6 +354,19 @@ impl AppCore {
     ) -> Result<Uuid, ArchiveError> {
         let mut sessions = self.sessions.lock();
         let session = sessions.get_mut(&session_id).ok_or_else(missing_session)?;
+        let entry_ids = entries.map(|entries| entries.to_vec()).unwrap_or_else(|| {
+            session
+                .listing
+                .entries
+                .iter()
+                .map(|entry| entry.id)
+                .collect()
+        });
+        let preflight = self.preflight_service.check_listing(
+            &selected_listing(&session.listing, &entry_ids),
+            destination.clone(),
+        );
+        ensure_preflight_allows_extract(&preflight, options.overwrite_policy)?;
         let plan = match entries {
             Some(entries) => session
                 .open
@@ -523,23 +536,7 @@ impl ArchiveUseCases for AppCore {
     ) -> Result<ExtractResult, ArchiveError> {
         let preflight = self.preflight_extract(&request)?;
         if request.require_preflight_clear {
-            if !preflight.blocked_entries.is_empty() {
-                return Err(ArchiveError::new(
-                    ArchiveErrorKind::PathTraversalBlocked,
-                    "Extraction was blocked by safety preflight",
-                ));
-            }
-            if !preflight.conflicts.is_empty()
-                && matches!(
-                    request.extract_options.overwrite_policy,
-                    OverwritePolicy::AskBatch
-                )
-            {
-                return Err(ArchiveError::new(
-                    ArchiveErrorKind::Internal,
-                    "Extraction requires an explicit conflict policy",
-                ));
-            }
+            ensure_preflight_allows_extract(&preflight, request.extract_options.overwrite_policy)?;
         }
 
         let (source, mut open) = self.open_for_path(request.archive, request.open_options)?;
@@ -982,6 +979,25 @@ fn selected_listing(listing: &ArchiveListing, entries: &[EntryId]) -> ArchiveLis
     }
 }
 
+fn ensure_preflight_allows_extract(
+    preflight: &ExtractPreflight,
+    overwrite_policy: OverwritePolicy,
+) -> Result<(), ArchiveError> {
+    if !preflight.blocked_entries.is_empty() {
+        return Err(ArchiveError::new(
+            ArchiveErrorKind::PathTraversalBlocked,
+            "Extraction was blocked by safety preflight",
+        ));
+    }
+    if !preflight.conflicts.is_empty() && matches!(overwrite_policy, OverwritePolicy::AskBatch) {
+        return Err(ArchiveError::new(
+            ArchiveErrorKind::Internal,
+            "Extraction requires an explicit conflict policy",
+        ));
+    }
+    Ok(())
+}
+
 fn sort_entries(entries: &mut [ArchiveEntry], sort: EntrySort) {
     entries.sort_by(|left, right| {
         let ordering = match sort.column {
@@ -1059,6 +1075,7 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn app_core_constructs_with_default_config() {
@@ -1070,5 +1087,103 @@ mod tests {
         assert!(wildcard_match("docs/*.txt", "docs/readme.txt"));
         assert!(wildcard_match("*.txt", "docs/readme.txt"));
         assert!(!wildcard_match("images/*.png", "docs/readme.txt"));
+    }
+
+    #[test]
+    fn extract_session_blocks_unsafe_entries_before_backend_extract() {
+        let core = AppCore::new(AppConfig::default(), PlatformConfig::default());
+        let session_id = SessionId::new();
+        core.sessions.lock().insert(
+            session_id,
+            CoreArchiveSession {
+                id: session_id,
+                source: ArchiveSource::LocalPath(PathBuf::from("unsafe.zip")),
+                info: ArchiveInfo::unknown("unsafe.zip"),
+                capabilities: ArchiveCapabilities::unsupported(),
+                listing: ArchiveListing {
+                    entries: vec![ArchiveEntry {
+                        id: EntryId(0),
+                        raw_path: "../escape.txt".into(),
+                        normalized_path: "../escape.txt".into(),
+                        display_path: "../escape.txt".into(),
+                        kind: EntryKind::File,
+                        size: Some(1),
+                        compressed_size: Some(1),
+                        modified_at: None,
+                        method: None,
+                        encrypted: false,
+                        safety: EntrySafety::Blocked {
+                            reason: SafetyBlockReason::ParentTraversal,
+                        },
+                    }],
+                    directories: Default::default(),
+                    is_complete: true,
+                },
+                open: Box::new(PanicOnExtractArchive),
+                password_memory: None,
+            },
+        );
+
+        let error = core
+            .extract_session(
+                session_id,
+                None,
+                tempfile::tempdir().unwrap().path().to_path_buf(),
+                ExtractOptions {
+                    overwrite_policy: OverwritePolicy::Overwrite,
+                    ..ExtractOptions::default()
+                },
+            )
+            .unwrap_err();
+
+        assert_eq!(error.kind, ArchiveErrorKind::PathTraversalBlocked);
+    }
+
+    struct PanicOnExtractArchive;
+
+    impl OpenArchive for PanicOnExtractArchive {
+        fn info(&self) -> ArchiveInfo {
+            ArchiveInfo::unknown("test")
+        }
+
+        fn capabilities(&self) -> ArchiveCapabilities {
+            ArchiveCapabilities::unsupported()
+        }
+
+        fn listing(&mut self, _mode: ListingMode) -> Result<ArchiveListing, ArchiveError> {
+            Ok(ArchiveListing::default())
+        }
+
+        fn extract_all(
+            &mut self,
+            _destination: &Path,
+            _options: ExtractOptions,
+        ) -> Result<TaskPlan, ArchiveError> {
+            panic!("extract_all should not be called for unsafe entries")
+        }
+
+        fn extract_selected(
+            &mut self,
+            _entries: &[EntryId],
+            _destination: &Path,
+            _options: ExtractOptions,
+        ) -> Result<TaskPlan, ArchiveError> {
+            panic!("extract_selected should not be called for unsafe entries")
+        }
+
+        fn open_entry_stream(
+            &mut self,
+            entry: EntryId,
+            _options: StreamOptions,
+        ) -> Result<EntryStream, ArchiveError> {
+            Ok(EntryStream {
+                entry,
+                access_cost: AccessCost::Random,
+            })
+        }
+
+        fn test(&mut self, _options: TestOptions) -> Result<TaskPlan, ArchiveError> {
+            Ok(TaskPlan::new(TaskKind::Test, "test"))
+        }
     }
 }

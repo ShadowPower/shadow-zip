@@ -214,7 +214,16 @@ impl RarArchive {
         while let Some(header) = archive.read_header().map_err(map_unrar_crate_error)? {
             let current = EntryId(index);
             index += 1;
+            let entry_path = header.entry().filename.to_string_lossy().replace('\\', "/");
             archive = if selected.is_none_or(|ids| ids.contains(&current)) {
+                if !matches!(classify_entry_path(&entry_path), EntrySafety::Safe) {
+                    return Err(ArchiveError::new(
+                        ArchiveErrorKind::PathTraversalBlocked,
+                        "Archive entry path was blocked by the extraction safety policy",
+                    )
+                    .with_backend("unrar")
+                    .with_entry_path(entry_path));
+                }
                 if header.entry().is_file() {
                     header
                         .extract_with_base(destination)

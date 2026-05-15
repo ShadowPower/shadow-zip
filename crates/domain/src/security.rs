@@ -157,6 +157,9 @@ pub enum SecuritySeverity {
 }
 
 pub fn classify_entry_path(raw_path: &str) -> EntrySafety {
+    if raw_path.starts_with(r"\\?\") || raw_path.starts_with(r"\\.\") {
+        return blocked(SafetyBlockReason::DevicePath);
+    }
     let normalized = raw_path.replace('\\', "/");
     if normalized.starts_with("//") {
         return blocked(SafetyBlockReason::UncPath);
@@ -171,9 +174,6 @@ pub fn classify_entry_path(raw_path: &str) -> EntrySafety {
     }
     if is_windows_drive_path(&normalized) {
         return blocked(SafetyBlockReason::WindowsDrivePath);
-    }
-    if normalized.starts_with(r"\\?\") || normalized.starts_with(r"\\.\") {
-        return blocked(SafetyBlockReason::DevicePath);
     }
     if Path::new(&normalized)
         .components()
@@ -281,7 +281,7 @@ fn blocked(reason: SafetyBlockReason) -> EntrySafety {
 
 fn is_windows_drive_path(path: &str) -> bool {
     let bytes = path.as_bytes();
-    bytes.len() >= 3 && bytes[1] == b':' && bytes[2] == b'/' && bytes[0].is_ascii_alphabetic()
+    bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()
 }
 
 fn suspicious_ratio(size: Option<u64>, packed: Option<u64>, max_ratio: f64) -> bool {
@@ -335,6 +335,22 @@ mod tests {
             classify_entry_path("../evil.txt"),
             EntrySafety::Blocked {
                 reason: SafetyBlockReason::ParentTraversal
+            }
+        ));
+    }
+
+    #[test]
+    fn blocks_windows_device_and_drive_relative_paths() {
+        assert!(matches!(
+            classify_entry_path(r"\\?\C:\evil.txt"),
+            EntrySafety::Blocked {
+                reason: SafetyBlockReason::DevicePath
+            }
+        ));
+        assert!(matches!(
+            classify_entry_path("C:evil.txt"),
+            EntrySafety::Blocked {
+                reason: SafetyBlockReason::WindowsDrivePath
             }
         ));
     }

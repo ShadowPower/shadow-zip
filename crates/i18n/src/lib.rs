@@ -2,8 +2,11 @@ use std::{borrow::Cow, collections::BTreeMap, fmt};
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub enum Locale {
+    #[default]
     EnUs,
     ZhCn,
 }
@@ -23,12 +26,6 @@ impl Locale {
             Self::EnUs => "en-US",
             Self::ZhCn => "zh-CN",
         }
-    }
-}
-
-impl Default for Locale {
-    fn default() -> Self {
-        Self::EnUs
     }
 }
 
