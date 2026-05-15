@@ -14,9 +14,9 @@
 
 执行原则：
 
-- GUI 和 CLI 都必须调用同一个 `app-core` use case。
+- 未来桌面端和 CLI 都必须调用同一个 `app-core` use case。
 - CLI 不得直接绕过 app-core 调用具体 backend。
-- GUI 不得保留后端选择、preflight、extract、create、test、preview 等核心业务编排。
+- 未来桌面端不得保留后端选择、preflight、extract、create、test、preview 等核心业务编排。
 - 所有 CLI 输出、退出码、JSON/NDJSON schema 必须稳定。
 - 每个对外暴露的 CLI 功能都必须有测试。
 
@@ -26,11 +26,11 @@
 
 - `cargo test --workspace` 通过。
 - CLI 必跑 E2E 套件通过。
-- GUI smoke test 通过。
+- 当前阶段不要求桌面端 smoke test；未来 Flutter 桌面端落地后补充对应 smoke test。
 - `CLI_TEST_CASES.md` 中已实现功能对应的用例不再标记 pending。
 - `shadow-zip --help` 能列出所有已实现命令。
 - `shadow-zip info/list/preflight extract/extract/create/test/backends/helpers --json` 输出合法 JSON。
-- CLI 测通能覆盖 GUI 的主要核心逻辑。
+- CLI 测通能覆盖未来桌面端的主要核心逻辑。
 
 ## 3. 阶段 0：准备与约束
 
@@ -74,7 +74,7 @@
 - [ ] **CLI-DEV-0104：定义 app-core use case trait**
   - 任务：定义 `pub trait ArchiveUseCases`，包含 `inspect`、`list`、`tree`、`preflight_extract`、`extract`、`create`、`test`、`preview`、`helpers`、`diagnose`、`cache_status`、`cache_cleanup`、`recent_list`。
   - 完成标准：trait 方法只接收 request model 和 progress sink，不接收 GUI 类型。
-  - 验收标准：`crates/app-core` 不依赖 `gpui` 或 `shadow-zip-ui`。
+  - 验收标准：`crates/app-core` 不依赖 Flutter 或已移除的 UI crate。
 
 - [ ] **CLI-DEV-0105：定义 inspect request/response**
   - 任务：新增 `InspectRequest` 和 `InspectResult`。
@@ -121,24 +121,19 @@
   - 完成标准：diagnose result 包含每个 backend 的 probe 结果、open 结果、helper 状态和 causes。
   - 验收标准：`diagnose unsupported.bin` 返回所有 backend probe 信息。
 
-- [ ] **CLI-DEV-0114：将 `AppController` 业务逻辑迁移到 app-core**
-  - 任务：把 `crates/app/src/main.rs` 中 `AppController` 的非 GUI 逻辑移动到 `crates/app-core`。
-  - 完成标准：后端构造、open、preflight、extract、create、test、preview、recent、diagnostics、config 操作都在 app-core。
-  - 验收标准：`crates/app/src/main.rs` 不再直接引用具体 backend 类型。
+- [ ] **CLI-DEV-0114：保持核心业务逻辑集中在 app-core**
+  - 任务：确认后端构造、open、preflight、extract、create、test、preview、recent、diagnostics、config 操作都在 `crates/app-core` 或更底层核心 crate。
+  - 完成标准：CLI 和未来桌面端都可以通过 app-core use case 触发核心流程。
+  - 验收标准：workspace 中不存在旧桌面专用 app/ui crate，且 `crates/app-core` 不依赖 UI 框架。
 
-- [ ] **CLI-DEV-0115：保留 GUI adapter**
-  - 任务：在 `crates/app` 中新增或保留一个薄 adapter，实现 `WorkbenchActions` 并委托给 `AppCore`。
-  - 完成标准：adapter 只做 request 转换和 response 转换，不做后端选择、安全检查或任务执行。
-  - 验收标准：代码搜索 `crates/app` 中不出现 `ZipBackend`、`SevenZipBackend`、`PreflightService::new`、`TaskEngine::default`。
-
-- [ ] **CLI-DEV-0116：修复 GUI 编译**
-  - 任务：调整 `crates/app/Cargo.toml`，让 GUI binary 依赖 `shadow-zip-app-core`。
-  - 完成标准：GUI 入口仍能构造 `Workbench::with_actions`。
-  - 验收标准：`cargo check -p shadow-zip-app` 成功。
+- [ ] **CLI-DEV-0115：预留未来 Flutter adapter 边界**
+  - 任务：确保 app-core request/response 不包含 CLI 专用 stdout/stderr 类型，也不包含 Flutter/平台窗口对象。
+  - 完成标准：adapter 只需要做 request 转换和 response 转换，不需要做后端选择、安全检查或任务执行。
+  - 验收标准：代码搜索确认 app-core 不出现 UI 框架依赖。
 
 - [ ] **CLI-DEV-0117：新增 app-core 基础测试**
   - 任务：在 `crates/app-core/tests/use_cases.rs` 中新增 inspect/list/preflight/extract/create/test 基础测试。
-  - 完成标准：测试使用 tempfile 和真实小 fixture，不依赖 GPUI。
+  - 完成标准：测试使用 tempfile 和真实小 fixture，不依赖 Flutter。
   - 验收标准：`cargo test -p shadow-zip-app-core` 通过。
 
 ## 5. 阶段 2：补齐真实执行边界
@@ -475,32 +470,32 @@
   - 完成标准：平台特定测试用 `cfg` 或运行时 skip 明确处理。
   - 验收标准：Windows、macOS、Linux 上不存在误失败。
 
-## 12. 阶段 9：GUI 薄适配验证
+## 12. 阶段 9：未来桌面端薄适配验证
 
-- [ ] **CLI-DEV-0901：定义 GUI fake use cases**
-  - 任务：为 `crates/ui` 或 `crates/app` 测试定义 fake `WorkbenchActions`/app-core adapter。
+- [ ] **CLI-DEV-0901：定义桌面端 fake use cases**
+  - 任务：未来 Flutter 桌面端落地后，为 UI adapter 测试定义 fake app-core adapter。
   - 完成标准：fake 返回固定 session、error、preflight、task id。
-  - 验收标准：GUI 测试不需要真实归档文件。
+  - 验收标准：桌面端测试不需要真实归档文件。
 
 - [ ] **CLI-DEV-0902：测试打开归档 UI 适配**
-  - 任务：验证 open 成功后 `WorkbenchState.session`、tree、status 更新。
+  - 任务：验证 open 成功后桌面端 session、tree、status 更新。
   - 完成标准：不测试 backend，只测试 response 到 UI state 的映射。
-  - 验收标准：GUI 测试通过。
+  - 验收标准：桌面端测试通过。
 
 - [ ] **CLI-DEV-0903：测试错误 overlay**
   - 任务：fake 返回 `ArchiveError`，验证 error overlay 显示。
   - 完成标准：错误 title/message/detail 来自 `ErrorPresentation`。
-  - 验收标准：GUI 测试通过。
+  - 验收标准：桌面端测试通过。
 
 - [ ] **CLI-DEV-0904：测试解压任务按钮适配**
   - 任务：点击或直接调用 extract action，验证发出正确 request 并显示 task id。
-  - 完成标准：GUI 不自行做 preflight 或 backend 选择。
-  - 验收标准：代码搜索确认 GUI 无核心业务分支。
+  - 完成标准：桌面端不自行做 preflight 或 backend 选择。
+  - 验收标准：代码搜索确认桌面端无核心业务分支。
 
 - [ ] **CLI-DEV-0905：测试创建/设置/helper overlay 映射**
   - 任务：验证 create draft、settings、helper diagnostics 的状态展示。
   - 完成标准：overlay 数据来自 app-core/domain model。
-  - 验收标准：GUI smoke tests 通过。
+  - 验收标准：桌面端 smoke tests 通过。
 
 ## 13. 阶段 10：CI 与发布门禁
 
@@ -531,7 +526,7 @@
 
 - [ ] **CLI-DEV-1006：定义发布前命令**
   - 任务：在 README 或 release checklist 中写明发布前命令。
-  - 完成标准：至少包含 workspace tests、CLI full E2E、GUI smoke。
+  - 完成标准：至少包含 workspace tests 和 CLI full E2E；未来桌面端落地后增加 desktop smoke。
   - 验收标准：发布流程文档可直接复制执行。
 
 ## 14. 阶段 11：文档与维护
@@ -580,7 +575,7 @@ MVP 发布前必须通过：
 - [ ] `cargo check --workspace`
 - [ ] `cargo test --workspace`
 - [ ] CLI global/backend/info/list/tree/preflight/extract/create/test/error/security 必跑用例
-- [ ] GUI smoke tests
+- [ ] Future desktop smoke tests
 
 ## 16. 完整版交付清单
 
@@ -598,5 +593,5 @@ MVP 发布前必须通过：
 - [ ] `cargo test --workspace`
 - [ ] CLI full E2E fixture suite
 - [ ] helper 条件套件在可用环境通过，不可用环境 skipped
-- [ ] GUI 覆盖映射中所有已实现功能对应 CLI 用例全部通过
+- [ ] 桌面端覆盖映射中所有已实现功能对应 CLI 用例全部通过
 - [ ] 文档、`--help`、JSON schema 三者一致

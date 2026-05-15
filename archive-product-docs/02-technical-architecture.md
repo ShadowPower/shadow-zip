@@ -6,12 +6,12 @@
 
 本项目应采用分层、分后端、能力驱动的架构。归档格式之间的差异过大，不能以一个“万能归档接口”掩盖底层限制。ZIP 的 central directory 使其非常适合快速列目录和单文件预览；tar.gz、tar.xz、tar.zst 则是顺序流，适合单遍解压和创建，但不天然适合随机浏览；7z 在 non-solid 与 solid 两种情况下具有完全不同的访问成本；RAR 解压可以实现，但创建能力涉及专有授权和外部工具。
 
-因此，推荐架构是：GPUI 负责桌面界面与交互；Rust 领域层负责归档 session、任务、缓存、索引、错误和能力模型；Archive Service 根据格式和能力选择后端；各后端分别适配 minizip-ng、sevenz-rust2、libarchive、Rust tar 流式管线和 UnRAR。UI 不直接理解后端细节，而是依据归档能力模型决定呈现什么操作、提示什么限制、允许什么 fallback。
+因此，推荐架构是：Flutter 负责桌面界面与交互；Rust 领域层负责归档 session、任务、缓存、索引、错误和能力模型；Archive Service 根据格式和能力选择后端；各后端分别适配 minizip-ng、sevenz-rust2、libarchive、Rust tar 流式管线和 UnRAR。UI 不直接理解后端细节，而是依据归档能力模型决定呈现什么操作、提示什么限制、允许什么 fallback。
 
 逻辑结构如下：
 
 ```text
-GPUI Interface
+Flutter Interface
   -> UI State
   -> Domain State
   -> Task Engine
@@ -24,9 +24,9 @@ GPUI Interface
 
 ## 2. 模块边界
 
-工程上建议采用 Rust workspace。`app` crate 负责应用入口、依赖组装和配置加载；`ui` crate 封装 GPUI 组件；`domain` crate 定义归档 entry、能力、错误和任务领域模型；`task-engine` crate 管理任务队列、优先级、取消和进度聚合；`archive-core` crate 定义后端 trait；`archive-zip`、`archive-7z`、`archive-tar`、`archive-rar` 和 `archive-libarchive` 分别承担格式后端适配；`preview` crate 负责图片和文本预览；`cache` crate 负责索引、缩略图和临时文件；`platform` crate 隔离三平台系统集成。
+工程上建议采用 Rust workspace。当前 Rust 仓库保留 `cli`、`app-core`、`domain`、`task-engine`、`archive-core`、`archive-zip`、`archive-7z`、`archive-tar`、`archive-rar`、`archive-libarchive`、`preview`、`cache`、`platform` 和 `i18n` 等核心 crate。未来 Flutter 桌面端应作为独立适配层接入 `app-core`，只负责界面状态、事件转换、窗口生命周期和平台桥接，不承载归档后端选择、preflight、任务执行或错误分类等核心业务。
 
-这种拆分的目的不是增加抽象数量，而是控制变化边界。GPUI 仍处于 pre-1.0，UI 层应被隔离；C/C++ FFI 存在生命周期、错误码和路径编码问题，应被限制在后端 crate 内；平台集成差异大，应避免在业务逻辑中到处出现条件编译。
+这种拆分的目的不是增加抽象数量，而是控制变化边界。UI 层应被隔离，避免具体桌面框架对象进入核心业务；C/C++ FFI 存在生命周期、错误码和路径编码问题，应被限制在后端 crate 内；平台集成差异大，应避免在业务逻辑中到处出现条件编译。
 
 ## 3. 能力模型
 
@@ -77,4 +77,3 @@ MVP 不应被 shell 深度集成阻塞。合理策略是先确保三平台核心
 错误必须结构化，并从底层后端错误映射为稳定领域错误。UI 不应直接处理 C errno、7z 内部错误码、libarchive 状态码或 unrar 返回码。领域错误应至少区分不支持格式、不支持 codec、不支持 filter、需要密码、密码错误、归档损坏、磁盘空间不足、权限不足、路径过长、路径穿越被阻止、符号链接策略阻止、后端不可用、外部 helper 失败、任务取消和普通 I/O 错误。
 
 每个错误应包含用户可读消息、技术详情、后端名称、归档路径、entry 路径和可恢复建议。这样既能提高用户体验，也能为诊断和回归测试提供稳定依据。
-

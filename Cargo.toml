@@ -1,9 +1,7 @@
 [workspace]
 members = [
-    "crates/app",
     "crates/app-core",
     "crates/cli",
-    "crates/ui",
     "crates/domain",
     "crates/task-engine",
     "crates/archive-core",
@@ -69,10 +67,6 @@ shadow-zip-cache = { path = "crates/cache" }
 shadow-zip-i18n = { path = "crates/i18n" }
 shadow-zip-platform = { path = "crates/platform" }
 shadow-zip-app-core = { path = "crates/app-core" }
-shadow-zip-ui = { path = "crates/ui" }
-
-gpui = "0.2.2"
-gpui-component = "0.5.1"
 
 [workspace.dependencies.pretty_assertions]
 version = "1"

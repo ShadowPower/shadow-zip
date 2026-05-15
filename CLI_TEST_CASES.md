@@ -4,7 +4,7 @@
 
 ## 1. 测试目标
 
-本文件基于 `CLI_DESIGN.md`，定义 Shadow Zip CLI 的完整测试用例。目标不是只验证命令行参数，而是把 CLI 作为核心逻辑的 headless 验收入口：CLI 全量 fixture suite 通过时，应能证明 GUI 的绝大多数核心业务逻辑也通过了同一套 app-core、domain、archive-core、preview、task-engine、cache 和 platform 逻辑。
+本文件基于 `CLI_DESIGN.md`，定义 Shadow Zip CLI 的完整测试用例。目标不是只验证命令行参数，而是把 CLI 作为核心逻辑的 headless 验收入口：CLI 全量 fixture suite 通过时，应能证明未来桌面端的绝大多数核心业务逻辑也通过了同一套 app-core、domain、archive-core、preview、task-engine、cache 和 platform 逻辑。
 
 测试覆盖范围包括：
 
@@ -24,7 +24,7 @@
 
 ### 2.1 CLI E2E 测试
 
-通过编译后的 `shadow-zip` binary 执行真实命令，验证 stdout、stderr、退出码、文件系统副作用和 JSON/NDJSON schema。所有核心 GUI 业务能力都必须至少有一个 CLI E2E 用例覆盖。
+通过编译后的 `shadow-zip` binary 执行真实命令，验证 stdout、stderr、退出码、文件系统副作用和 JSON/NDJSON schema。所有核心桌面端业务能力都必须至少有一个 CLI E2E 用例覆盖。
 
 ### 2.2 app-core 合同测试
 
@@ -41,12 +41,12 @@
 - `cache`: fingerprint、LRU、schema migration、cleanup。
 - `platform`: helper discovery、helper runner、redaction。
 
-### 2.4 GUI 薄适配测试
+### 2.4 未来桌面端薄适配测试
 
-GUI 只验证表现层，不重复归档业务测试：
+未来桌面端只验证表现层，不重复归档业务测试：
 
 - 用户事件能生成正确 app-core request。
-- app-core response 能更新 `WorkbenchState`。
+- app-core response 能更新桌面端状态。
 - 错误、冲突、密码、设置、helper overlay 能显示。
 - 渲染在最小窗口尺寸不崩溃。
 

@@ -4,9 +4,9 @@
 
 ## 1. 目标与边界
 
-Shadow Zip 需要在保留 GUI 体验的同时，提供完整、稳定、可脚本化的 CLI。CLI 不是 TUI，不提供 curses、全屏交互、键盘导航式文件管理器或常驻终端界面。它应像 `git`、`tar`、`7z` 一样，通过子命令、参数、标准输入输出、退出码和机器可读格式完成操作。
+Shadow Zip 需要以 CLI 和 Rust 核心为稳定基础，同时为未来 Flutter + Rust 桌面端保留复用边界。CLI 不是 TUI，不提供 curses、全屏交互、键盘导航式文件管理器或常驻终端界面。它应像 `git`、`tar`、`7z` 一样，通过子命令、参数、标准输入输出、退出码和机器可读格式完成操作。
 
-CLI 的设计目标是：除纯 GUI 交互能力外，核心功能都应可由命令行触发，并且和 GUI 共用同一套领域逻辑、后端选择、预检查、安全策略、任务执行、错误模型和配置模型。CLI 不应重新实现一套压缩、解压、预览或安全检查逻辑。
+CLI 的设计目标是：除纯图形交互能力外，核心功能都应可由命令行触发，并且和未来桌面端共用同一套领域逻辑、后端选择、预检查、安全策略、任务执行、错误模型和配置模型。CLI 不应重新实现一套压缩、解压、预览或安全检查逻辑。
 
 CLI 应覆盖以下能力：
 
@@ -24,23 +24,22 @@ CLI 应覆盖以下能力：
 CLI 不覆盖以下内容：
 
 - 图形化浏览、目录树拖拽、图片查看器缩放交互、文件对话框。
-- GPUI 窗口状态、布局状态、菜单、工具栏、overlay。
+- 未来 Flutter 桌面端的窗口状态、布局状态、菜单、工具栏和 overlay。
 - 平台 shell 扩展安装向导的图形流程。
 
 ## 2. 核心原则
 
-### 2.1 CLI 和 GUI 共用 app-core
+### 2.1 CLI 和未来桌面端共用 app-core
 
-当前代码已经将大量稳定能力放在 `crates/domain`、`crates/archive-core`、`crates/preview`、`crates/task-engine`、`crates/cache`、`crates/platform` 中。后续应新增一个非 UI 编排层，例如 `crates/app-core`，把现在 `crates/app/src/main.rs` 中的 `AppController` 移出 GUI binary。
+当前代码已经将大量稳定能力放在 `crates/domain`、`crates/archive-core`、`crates/preview`、`crates/task-engine`、`crates/cache`、`crates/platform` 中，并由非 UI 编排层 `crates/app-core` 对外提供 use case。当前仓库不再包含旧桌面 app/ui crate；后续 Flutter 桌面端应作为独立适配层接入 `app-core`。
 
 目标结构：
 
 ```text
 crates/
-  app/          # GUI binary，只负责 GPUI bootstrap 和窗口
   cli/          # CLI binary，只负责参数解析、stdout/stderr、退出码
-  app-core/     # 应用编排层，GUI 和 CLI 共用
-  ui/           # GPUI 视图和 WorkbenchActions trait
+  app-core/     # 应用编排层，CLI 和未来桌面端共用
+  desktop/      # 未来 Flutter/Rust 桌面适配层，不承载核心业务
   domain/
   archive-core/
   preview/
@@ -58,12 +57,12 @@ crates/
 - 调用任务引擎并执行任务。
 - 聚合进度、警告、诊断和错误。
 
-GUI 和 CLI 的差异只应体现在适配层：
+桌面端和 CLI 的差异只应体现在适配层：
 
 - GUI 将领域状态映射为窗口、面板、列表、overlay 和按钮。
 - CLI 将领域状态映射为文本、JSON、NDJSON、退出码和 stderr。
 
-必须建立一个硬性边界：GUI 不能直接调用具体 archive backend、preflight、task runtime 或 preview processor 来做业务决策；CLI 也不能直接绕过 app-core 拼装后端调用。GUI 和 CLI 都只能调用 app-core 暴露的 use case。这样 CLI 集成测试跑通时，测到的不是“另一个命令行实现”，而是 GUI 实际依赖的同一条核心逻辑链路。
+必须建立一个硬性边界：桌面端不能直接调用具体 archive backend、preflight、task runtime 或 preview processor 来做业务决策；CLI 也不能直接绕过 app-core 拼装后端调用。桌面端和 CLI 都只能调用 app-core 暴露的 use case。这样 CLI 集成测试跑通时，测到的不是“另一个命令行实现”，而是未来桌面端实际依赖的同一条核心逻辑链路。
 
 ### 2.2 不以文件扩展名硬编码行为
 
@@ -149,10 +148,10 @@ name = "shadow-zip-cli"
 shadow-zip
 ```
 
-如果 GUI binary 也需要同名入口，则发布包中可以采用：
+如果未来桌面端也需要命令入口，则发布包中可以采用：
 
 - `shadow-zip`：CLI。
-- `shadow-zip-gui` 或桌面快捷方式：GUI。
+- 桌面快捷方式或单独的 Flutter 应用入口：图形界面。
 
 原因是 CLI 更适合作为 PATH 中的稳定命令，GUI 启动通常由桌面入口、文件关联或 `shadow-zip open --gui` 完成。
 
@@ -772,9 +771,9 @@ impl AppCore {
 }
 ```
 
-GUI 的 `WorkbenchActions` 和 CLI command handler 都依赖 `AppCore`。
+未来桌面端 adapter 和 CLI command handler 都依赖 `AppCore`。
 
-`AppCore` 的方法应当是产品 use case，而不是底层 helper 的薄封装。每个 use case 都应完整包含打开归档、能力判断、选择解析、preflight、任务计划、执行和错误映射中属于该操作的必要步骤。GUI 点击按钮和 CLI 子命令都只能进入这些 use case。
+`AppCore` 的方法应当是产品 use case，而不是底层 helper 的薄封装。每个 use case 都应完整包含打开归档、能力判断、选择解析、preflight、任务计划、执行和错误映射中属于该操作的必要步骤。桌面端用户动作和 CLI 子命令都只能进入这些 use case。
 
 ### 12.2 共享 Use Case 合同
 
@@ -792,10 +791,10 @@ pub trait ArchiveUseCases {
 }
 ```
 
-GUI adapter 只做：
+桌面端 adapter 只做：
 
 ```text
-UI event -> request -> ArchiveUseCases -> response -> WorkbenchState
+UI event -> request -> ArchiveUseCases -> response -> desktop state
 ```
 
 CLI adapter 只做：
@@ -804,11 +803,11 @@ CLI adapter 只做：
 argv/env/stdin -> request -> ArchiveUseCases -> stdout/stderr/exit code
 ```
 
-这个合同是“CLI 测通等于 GUI 核心逻辑测通”的关键。如果 GUI 需要一个核心动作，但该动作没有对应 use case 或无法通过 CLI/headless test 调用，应视为架构缺口。
+这个合同是“CLI 测通等于桌面端核心逻辑测通”的关键。如果桌面端需要一个核心动作，但该动作没有对应 use case 或无法通过 CLI/headless test 调用，应视为架构缺口。
 
 ### 12.3 请求/响应模型
 
-建议将 CLI 和 GUI 都需要的请求模型放入 `app-core` 或 `domain`：
+建议将 CLI 和桌面端都需要的请求模型放入 `app-core` 或 `domain`：
 
 ```rust
 pub struct ListRequest {
@@ -898,7 +897,7 @@ anstream = "0.6"
 
 ## 14. 测试策略
 
-测试策略的核心目标是：CLI 集成测试通过，必须能证明 GUI 的绝大多数核心逻辑也通过。这里的“核心逻辑”指归档能力、数据模型、安全策略、任务执行、配置、缓存、预览、错误处理和 helper 诊断，不包括 GPUI 渲染、鼠标键盘事件、窗口布局和文件对话框。
+测试策略的核心目标是：CLI 集成测试通过，必须能证明 GUI 的绝大多数核心逻辑也通过。这里的“核心逻辑”指归档能力、数据模型、安全策略、任务执行、配置、缓存、预览、错误处理和 helper 诊断，不包括 Flutter 渲染、鼠标键盘事件、窗口布局和文件对话框。
 
 ### 14.1 核心验收原则
 
@@ -936,14 +935,14 @@ CLI 测试要有三条约束：
 | 缓存 | `cache status/cleanup` | cache service | cleanup plan、缓存根目录、清理策略 |
 | 最近文件 | `recent list/clear` | recent service | recent file persistence、max items |
 
-GUI 仍需自己的测试，但范围应很薄：
+未来桌面端仍需自己的测试，但范围应很薄：
 
-- `WorkbenchState` 能正确呈现 app-core response。
+- 桌面端状态能正确呈现 app-core response。
 - 点击按钮能发出正确 request。
 - overlay、列表 selection、键盘快捷键、窗口 resize 不崩溃。
 - 渲染在最小窗口尺寸下不重叠。
 
-这些 GUI 测试不重新验证归档业务正确性。
+这些桌面端测试不重新验证归档业务正确性。
 
 ### 14.3 纯解析测试
 
@@ -978,11 +977,11 @@ GUI 仍需自己的测试，但范围应很薄：
 - `create` 后立刻用 `list` 和 `test` 验证生成归档。
 - `--password-env` 成功打开加密 fixture，错误密码返回稳定退出码。
 
-### 14.6 GUI 薄适配测试
+### 14.6 桌面端薄适配测试
 
-GUI 测试应刻意避免重复 app-core 的归档测试。推荐使用 fake `ArchiveUseCases` 返回固定 response，只验证 UI adapter：
+桌面端测试应刻意避免重复 app-core 的归档测试。推荐使用 fake `ArchiveUseCases` 返回固定 response，只验证 UI adapter：
 
-- 打开成功后 `WorkbenchState.session`、目录树、状态栏更新。
+- 打开成功后桌面端 session、目录树、状态栏更新。
 - app-core 返回 `ArchiveError` 后显示错误 overlay。
 - 解压 preflight 返回冲突后显示冲突面板。
 - 点击测试归档按钮发出 `TestRequest`。
@@ -1004,7 +1003,7 @@ cargo test -p shadow-zip-app-core
 cargo test -p shadow-zip-cli
 ```
 
-如果时间允许，再运行 GUI smoke test。发布前必须运行 CLI end-to-end fixture suite。该 suite 通过时，可以认为 GUI 的核心业务链路已经被覆盖；GUI 测试只负责证明表现层没有把这些能力接错。
+未来桌面端落地后再运行对应 smoke test。发布前必须运行 CLI end-to-end fixture suite。该 suite 通过时，可以认为桌面端的核心业务链路已经被覆盖；桌面端测试只负责证明表现层没有把这些能力接错。
 
 ## 15. 发布与兼容
 
@@ -1023,17 +1022,16 @@ CLI 是外部契约，一旦发布应尽量保持兼容。
 ### 阶段 1：抽出共享编排层
 
 - 新增 `crates/app-core`。
-- 将 `AppController` 的非 GUI 逻辑移动到 `app-core`。
-- GUI `crates/app` 只负责 GPUI bootstrap。
-- `crates/ui` 继续通过 trait 调用 app-core adapter。
+- 保持核心业务逻辑集中在 `app-core`。
+- 未来 Flutter 桌面端只负责 bootstrap、UI 状态和事件适配。
+- 桌面端通过稳定 request/response 调用 app-core adapter。
 
 验收标准：
 
-- GUI 行为不回退。
-- app-core 可在无 GPUI 环境下测试。
-- `crates/app` 不再持有后端选择、preflight、extract、create、test、preview 等业务编排。
-- `crates/ui` 不依赖具体 archive backend，只依赖领域模型和 GUI adapter trait。
-- 每个 GUI 核心动作都能映射到一个 app-core use case。
+- app-core 可在无 Flutter 环境下测试。
+- 仓库不包含旧桌面 UI 框架依赖或专用 crate。
+- 未来桌面端不持有后端选择、preflight、extract、create、test、preview 等业务编排。
+- 每个桌面端核心动作都能映射到一个 app-core use case。
 
 ### 阶段 2：CLI MVP
 

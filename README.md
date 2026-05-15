@@ -1,7 +1,7 @@
 # Shadow Zip
 
-Shadow Zip is a GPUI desktop archive manager scaffolded from the product docs in
-`archive-gpui-product-docs`.
+Shadow Zip is a CLI-first archive manager with a Rust core scaffolded from the product docs in
+`archive-product-docs`.
 
 The code is organized around capability-driven archive sessions instead of UI
 checks against file extensions:
@@ -19,18 +19,16 @@ checks against file extensions:
 - `crates/i18n`: English and Simplified Chinese translations via stable
   message keys.
 - `crates/platform`: platform integration boundary and external helper config.
-- `crates/ui`: GPUI workbench layout.
-- `crates/app`: application composition and workflow controller.
 - `crates/app-core`: shared non-UI use cases for archive operations, used by
-  both GUI and CLI.
+  the CLI today and a future Flutter + Rust desktop adapter.
 - `crates/cli`: command-line interface for headless automation and core
   workflow testing.
 
 ## CLI
 
 The CLI binary is `shadow-zip`. It is intentionally a command-line interface,
-not a TUI. It shares the same app-core logic as the GUI, so CLI tests exercise
-the archive workflows that the GUI depends on.
+not a TUI. It uses `app-core` directly, so CLI tests exercise the archive
+workflows that a future desktop UI should also call.
 
 Common commands:
 
@@ -86,7 +84,7 @@ allows it, as in image preview.
 ## Testing Shape
 
 Pure logic is kept behind small services and traits so it can be tested without
-GPUI or platform integration:
+desktop UI or platform integration:
 
 - `domain`: path safety and archive-bomb policy
 - `archive-core`: stream pump, safe writer, preflight
