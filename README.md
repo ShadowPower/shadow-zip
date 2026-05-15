@@ -21,6 +21,36 @@ checks against file extensions:
 - `crates/platform`: platform integration boundary and external helper config.
 - `crates/ui`: GPUI workbench layout.
 - `crates/app`: application composition and workflow controller.
+- `crates/app-core`: shared non-UI use cases for archive operations, used by
+  both GUI and CLI.
+- `crates/cli`: command-line interface for headless automation and core
+  workflow testing.
+
+## CLI
+
+The CLI binary is `shadow-zip`. It is intentionally a command-line interface,
+not a TUI. It shares the same app-core logic as the GUI, so CLI tests exercise
+the archive workflows that the GUI depends on.
+
+Common commands:
+
+```sh
+shadow-zip info archive.zip
+shadow-zip list archive.zip
+shadow-zip tree archive.zip
+shadow-zip preflight extract archive.zip --to out
+shadow-zip extract archive.zip --to out --rename-existing
+shadow-zip create output.zip input-dir --format zip
+shadow-zip test archive.zip
+shadow-zip cat archive.zip docs/readme.txt
+shadow-zip preview archive.zip images/pixel.png --mode metadata --json
+shadow-zip backends --json
+shadow-zip helpers --json
+shadow-zip diagnose archive.zip --json
+shadow-zip cache status --json
+shadow-zip recent list --json
+shadow-zip config get --json
+```
 
 Dependencies are intended to come from crates.io. The project-level Cargo config
 routes crates.io through the USTC sparse mirror.

@@ -19,9 +19,17 @@ const MAX_RENDERED_TREE_ROWS: usize = 500;
 
 pub trait WorkbenchActions: Send + Sync + 'static {
     fn open_archive(&self, path: PathBuf) -> Result<ArchiveSessionSnapshot, ArchiveError>;
-    fn extract_all(&self, session_id: SessionId, destination: PathBuf) -> Result<uuid::Uuid, ArchiveError>;
+    fn extract_all(
+        &self,
+        session_id: SessionId,
+        destination: PathBuf,
+    ) -> Result<uuid::Uuid, ArchiveError>;
     fn test_archive(&self, session_id: SessionId) -> Result<uuid::Uuid, ArchiveError>;
-    fn request_preview(&self, session_id: SessionId, entry_id: EntryId) -> Result<uuid::Uuid, ArchiveError>;
+    fn request_preview(
+        &self,
+        session_id: SessionId,
+        entry_id: EntryId,
+    ) -> Result<uuid::Uuid, ArchiveError>;
     fn recent_files(&self) -> Vec<RecentFile>;
 }
 
@@ -103,13 +111,22 @@ impl Workbench {
         self.state.preview.selected_entry = Some(entry);
         self.state.preview.mode = SidebarPreviewMode::Metadata;
         if let Some(session) = &self.state.session {
-            if let Some(selected) = session.listing.entries.iter().find(|candidate| candidate.id == entry) {
+            if let Some(selected) = session
+                .listing
+                .entries
+                .iter()
+                .find(|candidate| candidate.id == entry)
+            {
                 self.state.preview.title = selected.display_path.clone();
                 self.state.preview.detail = format!(
                     "{} | {} | {}",
                     format!("{:?}", selected.kind),
                     format_size(selected.size),
-                    if selected.encrypted { "encrypted" } else { "plain" }
+                    if selected.encrypted {
+                        "encrypted"
+                    } else {
+                        "plain"
+                    }
                 );
             }
         }
@@ -139,14 +156,20 @@ impl Workbench {
             ToolbarCommand::Test => self.test_current_archive(),
             ToolbarCommand::View => self.preview_focused_entry(),
             ToolbarCommand::Settings => self.show_settings(),
-            ToolbarCommand::HelperDiagnostics => self.state.overlays.push(OverlayState::HelperDiagnostics(Vec::new())),
+            ToolbarCommand::HelperDiagnostics => self
+                .state
+                .overlays
+                .push(OverlayState::HelperDiagnostics(Vec::new())),
         }
         cx.notify();
     }
 
     fn prompt_open_archive(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(actions) = self.actions.clone() else {
-            self.show_error(ArchiveError::new(ArchiveErrorKind::Internal, "No application controller is attached."));
+            self.show_error(ArchiveError::new(
+                ArchiveErrorKind::Internal,
+                "No application controller is attached.",
+            ));
             return;
         };
 
@@ -158,7 +181,13 @@ impl Workbench {
         });
         let view = cx.entity();
         cx.spawn_in(window, async move |_, window| {
-            let Some(path) = paths.await.ok().and_then(Result::ok).flatten().and_then(|paths| paths.into_iter().next()) else {
+            let Some(path) = paths
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .flatten()
+                .and_then(|paths| paths.into_iter().next())
+            else {
                 return;
             };
             let result = actions.open_archive(path);
@@ -181,11 +210,17 @@ impl Workbench {
 
     fn prompt_extract_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(session_id) = self.state.session.as_ref().map(|session| session.id) else {
-            self.show_error(ArchiveError::new(ArchiveErrorKind::Internal, "Open an archive before extracting."));
+            self.show_error(ArchiveError::new(
+                ArchiveErrorKind::Internal,
+                "Open an archive before extracting.",
+            ));
             return;
         };
         let Some(actions) = self.actions.clone() else {
-            self.show_error(ArchiveError::new(ArchiveErrorKind::Internal, "No application controller is attached."));
+            self.show_error(ArchiveError::new(
+                ArchiveErrorKind::Internal,
+                "No application controller is attached.",
+            ));
             return;
         };
 
@@ -197,7 +232,13 @@ impl Workbench {
         });
         let view = cx.entity();
         cx.spawn_in(window, async move |_, window| {
-            let Some(destination) = paths.await.ok().and_then(Result::ok).flatten().and_then(|paths| paths.into_iter().next()) else {
+            let Some(destination) = paths
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .flatten()
+                .and_then(|paths| paths.into_iter().next())
+            else {
                 return;
             };
             let result = actions.extract_all(session_id, destination.clone());
@@ -206,8 +247,11 @@ impl Workbench {
                     match result {
                         Ok(task_id) => {
                             this.state.status.active_task = None;
-                            this.state.overlays.push(OverlayState::Extract(ExtractDialogState::all(session_id, destination)));
-                            this.state.preview.detail = format!("Extraction task queued: {task_id}");
+                            this.state.overlays.push(OverlayState::Extract(
+                                ExtractDialogState::all(session_id, destination),
+                            ));
+                            this.state.preview.detail =
+                                format!("Extraction task queued: {task_id}");
                         }
                         Err(error) => this.show_error(error),
                     }
@@ -220,37 +264,60 @@ impl Workbench {
 
     fn test_current_archive(&mut self) {
         let Some(session_id) = self.state.session.as_ref().map(|session| session.id) else {
-            self.show_error(ArchiveError::new(ArchiveErrorKind::Internal, "Open an archive before testing."));
+            self.show_error(ArchiveError::new(
+                ArchiveErrorKind::Internal,
+                "Open an archive before testing.",
+            ));
             return;
         };
-        match self.actions.as_ref().map(|actions| actions.test_archive(session_id)) {
+        match self
+            .actions
+            .as_ref()
+            .map(|actions| actions.test_archive(session_id))
+        {
             Some(Ok(task_id)) => {
                 self.state.preview.mode = SidebarPreviewMode::Metadata;
                 self.state.preview.title = self.t(MessageKey::ToolbarTest);
                 self.state.preview.detail = format!("Test task queued: {task_id}");
             }
             Some(Err(error)) => self.show_error(error),
-            None => self.show_error(ArchiveError::new(ArchiveErrorKind::Internal, "No application controller is attached.")),
+            None => self.show_error(ArchiveError::new(
+                ArchiveErrorKind::Internal,
+                "No application controller is attached.",
+            )),
         }
     }
 
     fn preview_focused_entry(&mut self) {
         let Some(session_id) = self.state.session.as_ref().map(|session| session.id) else {
-            self.show_error(ArchiveError::new(ArchiveErrorKind::Internal, "Open an archive before previewing."));
+            self.show_error(ArchiveError::new(
+                ArchiveErrorKind::Internal,
+                "Open an archive before previewing.",
+            ));
             return;
         };
         let Some(entry_id) = self.state.list.focused_entry else {
-            self.show_error(ArchiveError::new(ArchiveErrorKind::Internal, "Select a file before previewing."));
+            self.show_error(ArchiveError::new(
+                ArchiveErrorKind::Internal,
+                "Select a file before previewing.",
+            ));
             return;
         };
-        match self.actions.as_ref().map(|actions| actions.request_preview(session_id, entry_id)) {
+        match self
+            .actions
+            .as_ref()
+            .map(|actions| actions.request_preview(session_id, entry_id))
+        {
             Some(Ok(task_id)) => {
                 self.state.preview.mode = SidebarPreviewMode::Loading;
                 self.state.preview.pending_task = Some(task_id);
                 self.state.preview.detail = format!("Preview task queued: {task_id}");
             }
             Some(Err(error)) => self.show_error(error),
-            None => self.show_error(ArchiveError::new(ArchiveErrorKind::Internal, "No application controller is attached.")),
+            None => self.show_error(ArchiveError::new(
+                ArchiveErrorKind::Internal,
+                "No application controller is attached.",
+            )),
         }
     }
 }
@@ -317,13 +384,13 @@ impl Workbench {
             .children(command_buttons)
             .child(div().flex_1())
             .child(search_box(self.t(MessageKey::ToolbarSearch)))
-            .child(ribbon_button_visual(
-                "SET",
-                self.t(MessageKey::ToolbarSettings),
-                true,
-            ).id("toolbar-settings-extra").on_click(cx.listener(|this, _, window, cx| {
-                this.handle_toolbar_command(ToolbarCommand::Settings, window, cx);
-            })))
+            .child(
+                ribbon_button_visual("SET", self.t(MessageKey::ToolbarSettings), true)
+                    .id("toolbar-settings-extra")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.handle_toolbar_command(ToolbarCommand::Settings, window, cx);
+                    })),
+            )
     }
 
     fn ribbon_button(&self, command: &RibbonCommandState, cx: &mut Context<Self>) -> AnyElement {
@@ -376,12 +443,28 @@ impl Workbench {
                     .child(
                         row()
                             .gap_4()
-                            .child(start_action("OPEN", self.t(MessageKey::ToolbarOpen)).id("start-open").on_click(cx.listener(|this, _, window, cx| {
-                                this.handle_toolbar_command(ToolbarCommand::Open, window, cx);
-                            })))
-                            .child(start_action("NEW", self.t(MessageKey::ToolbarNew)).id("start-new").on_click(cx.listener(|this, _, window, cx| {
-                                this.handle_toolbar_command(ToolbarCommand::NewArchive, window, cx);
-                            }))),
+                            .child(
+                                start_action("OPEN", self.t(MessageKey::ToolbarOpen))
+                                    .id("start-open")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.handle_toolbar_command(
+                                            ToolbarCommand::Open,
+                                            window,
+                                            cx,
+                                        );
+                                    })),
+                            )
+                            .child(
+                                start_action("NEW", self.t(MessageKey::ToolbarNew))
+                                    .id("start-new")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.handle_toolbar_command(
+                                            ToolbarCommand::NewArchive,
+                                            window,
+                                            cx,
+                                        );
+                                    })),
+                            ),
                     )
                     .child(recent_list(&self.state.recent_files)),
             )
@@ -1162,9 +1245,7 @@ mod tests {
     #[::core::prelude::v1::test]
     fn renders_at_minimum_window_size_without_panicking() {
         let mut cx = TestAppContext::single();
-        let (_view, window) = cx.add_window_view(|_window, _cx| {
-            Workbench::new(Locale::EnUs)
-        });
+        let (_view, window) = cx.add_window_view(|_window, _cx| Workbench::new(Locale::EnUs));
 
         window.run_until_parked();
         window.simulate_resize(size(px(920.0), px(620.0)));
@@ -1175,9 +1256,9 @@ mod tests {
     fn rendered_list_click_selects_an_entry() {
         let mut cx = TestAppContext::single();
         let (view, window) = cx.add_window_view(|_window, _cx| {
-                let mut workbench = Workbench::new(Locale::EnUs);
-                workbench.set_session(session());
-                workbench
+            let mut workbench = Workbench::new(Locale::EnUs);
+            workbench.set_session(session());
+            workbench
         });
 
         window.run_until_parked();

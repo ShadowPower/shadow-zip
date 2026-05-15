@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "crates/app",
+    "crates/app-core",
+    "crates/cli",
     "crates/ui",
     "crates/domain",
     "crates/task-engine",
@@ -25,8 +27,9 @@ publish = false
 [workspace.dependencies]
 anyhow = "1"
 bitflags = "2"
-chrono = { version = "0.4", default-features = false, features = ["serde", "std"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 chardetng = "0.1"
+clap = { version = "4", features = ["derive"] }
 directories = "6"
 encoding_rs = "0.8"
 fast_image_resize = "5"
@@ -65,6 +68,7 @@ shadow-zip-preview = { path = "crates/preview" }
 shadow-zip-cache = { path = "crates/cache" }
 shadow-zip-i18n = { path = "crates/i18n" }
 shadow-zip-platform = { path = "crates/platform" }
+shadow-zip-app-core = { path = "crates/app-core" }
 shadow-zip-ui = { path = "crates/ui" }
 
 gpui = "0.2.2"
@@ -75,6 +79,15 @@ version = "1"
 
 [workspace.dependencies.rstest]
 version = "0.26"
+
+[workspace.dependencies.assert_cmd]
+version = "2"
+
+[workspace.dependencies.assert_fs]
+version = "1"
+
+[workspace.dependencies.predicates]
+version = "3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

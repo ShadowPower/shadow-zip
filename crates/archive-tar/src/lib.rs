@@ -6,8 +6,8 @@ use std::{
 
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use shadow_zip_archive_core::{
-    ArchiveBackend, InputScanner, OpenArchive, SafeWriter, StreamLimits, create_pipeline,
-    quick_test_pipeline, sequential_extract_pipeline,
+    ArchiveBackend, EntryReader, InputScanner, OpenArchive, SafeWriter, ScannedInput, StreamLimits,
+    create_pipeline, quick_test_pipeline, sequential_extract_pipeline,
 };
 use shadow_zip_domain::*;
 use tar::{Archive as TarReader, Builder as TarBuilder};
@@ -144,6 +144,41 @@ impl OpenArchive for TarArchive {
         })
     }
 
+    fn open_entry_reader(
+        &mut self,
+        entry: EntryId,
+        _options: StreamOptions,
+    ) -> Result<EntryReader, ArchiveError> {
+        let reader = self.open_reader()?;
+        let mut archive = TarReader::new(reader);
+        for (index, tar_entry) in archive.entries().map_err(io_error)?.enumerate() {
+            let mut tar_entry = tar_entry.map_err(io_error)?;
+            if EntryId(index as u64) != entry {
+                continue;
+            }
+            if tar_entry.header().entry_type().is_dir() {
+                return Err(ArchiveError::new(
+                    ArchiveErrorKind::Internal,
+                    "Cannot open a directory entry as a byte stream",
+                ));
+            }
+            let size = tar_entry.header().size().ok();
+            let mut bytes =
+                Vec::with_capacity(size.unwrap_or_default().min(16 * 1024 * 1024) as usize);
+            tar_entry.read_to_end(&mut bytes).map_err(io_error)?;
+            return Ok(EntryReader {
+                entry,
+                access_cost: AccessCost::SequentialFromStart,
+                source: Box::new(Cursor::new(bytes)),
+                size,
+            });
+        }
+        Err(ArchiveError::new(
+            ArchiveErrorKind::Internal,
+            "Archive entry id was not found",
+        ))
+    }
+
     fn test(&mut self, _options: TestOptions) -> Result<TaskPlan, ArchiveError> {
         Ok(
             TaskPlan::new(TaskKind::Test, "Stream test tar archive").native(quick_test_pipeline(
@@ -275,32 +310,50 @@ pub fn create_tar_archive(
     output: &Path,
     options: CreateOptions,
 ) -> Result<(), ArchiveError> {
+    let scanned = InputScanner::scan(inputs)?;
     let file = File::create(output).map_err(io_error)?;
-    let writer: Box<dyn Write> = match options.format {
-        ArchiveFormat::TarGz => Box::new(GzEncoder::new(file, Compression::default())),
-        ArchiveFormat::TarXz => Box::new(XzEncoder::new(
-            file,
-            options.compression_level.unwrap_or(6) as u32,
-        )),
-        ArchiveFormat::TarZst => Box::new(
-            zstd::stream::write::Encoder::new(file, options.compression_level.unwrap_or(3) as i32)
-                .map_err(io_error)?,
-        ),
-        _ => Box::new(file),
-    };
+    match options.format {
+        ArchiveFormat::TarGz => {
+            let encoder = GzEncoder::new(file, Compression::default());
+            let encoder = write_tar_entries(encoder, &scanned)?;
+            encoder.finish().map_err(io_error)?;
+        }
+        ArchiveFormat::TarXz => {
+            let encoder = XzEncoder::new(file, options.compression_level.unwrap_or(6) as u32);
+            let encoder = write_tar_entries(encoder, &scanned)?;
+            encoder.finish().map_err(io_error)?;
+        }
+        ArchiveFormat::TarZst => {
+            let encoder = zstd::stream::write::Encoder::new(
+                file,
+                options.compression_level.unwrap_or(3) as i32,
+            )
+            .map_err(io_error)?;
+            let encoder = write_tar_entries(encoder, &scanned)?;
+            encoder.finish().map_err(io_error)?;
+        }
+        _ => {
+            let _ = write_tar_entries(file, &scanned)?;
+        }
+    }
+    Ok(())
+}
+
+fn write_tar_entries<W: Write>(writer: W, inputs: &[ScannedInput]) -> Result<W, ArchiveError> {
     let mut builder = TarBuilder::new(writer);
-    for input in InputScanner::scan(inputs)? {
+    for input in inputs {
         if input.is_dir {
             builder
-                .append_dir(input.archive_path, &input.source_path)
+                .append_dir(&input.archive_path, &input.source_path)
                 .map_err(io_error)?;
         } else {
             builder
-                .append_path_with_name(&input.source_path, input.archive_path)
+                .append_path_with_name(&input.source_path, &input.archive_path)
                 .map_err(io_error)?;
         }
     }
-    builder.finish().map_err(io_error)
+    builder.finish().map_err(io_error)?;
+    builder.into_inner().map_err(io_error)
 }
 
 fn detect_tar_format(name: &str) -> ArchiveFormat {

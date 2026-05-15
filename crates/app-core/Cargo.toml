@@ -1,0 +1,29 @@
+[package]
+name = "shadow-zip-app-core"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+fs-err.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+shadow-zip-archive-core.workspace = true
+shadow-zip-archive-zip.workspace = true
+shadow-zip-archive-7z.workspace = true
+shadow-zip-archive-tar.workspace = true
+shadow-zip-archive-rar.workspace = true
+shadow-zip-archive-libarchive.workspace = true
+shadow-zip-cache.workspace = true
+shadow-zip-domain.workspace = true
+shadow-zip-platform.workspace = true
+shadow-zip-preview.workspace = true
+shadow-zip-task-engine.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

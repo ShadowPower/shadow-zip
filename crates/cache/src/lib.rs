@@ -374,9 +374,7 @@ fn hash_prefix(path: &Path) -> Result<String, ArchiveError> {
     let mut remaining = 8 * 1024 * 1024_u64;
     while remaining > 0 {
         let chunk_len = buf.len().min(remaining as usize);
-        let read = file
-            .read(&mut buf[..chunk_len])
-            .map_err(cache_io_error)?;
+        let read = file.read(&mut buf[..chunk_len]).map_err(cache_io_error)?;
         if read == 0 {
             break;
         }

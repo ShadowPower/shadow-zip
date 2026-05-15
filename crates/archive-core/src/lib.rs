@@ -47,6 +47,18 @@ pub trait OpenArchive: Send {
         entry: EntryId,
         options: StreamOptions,
     ) -> Result<EntryStream, ArchiveError>;
+    fn open_entry_reader(
+        &mut self,
+        entry: EntryId,
+        options: StreamOptions,
+    ) -> Result<EntryReader, ArchiveError> {
+        let stream = self.open_entry_stream(entry, options)?;
+        Err(ArchiveError::new(
+            ArchiveErrorKind::UnsupportedFormat,
+            "This backend does not expose entry bytes",
+        )
+        .with_technical_detail(format!("access_cost={:?}", stream.access_cost)))
+    }
     fn test(&mut self, options: TestOptions) -> Result<TaskPlan, ArchiveError>;
 }
 
@@ -679,6 +691,13 @@ pub struct ExtractStreamItem {
     pub path: String,
     pub kind: EntryKind,
     pub source: Box<dyn ByteSource>,
+}
+
+pub struct EntryReader {
+    pub entry: EntryId,
+    pub access_cost: AccessCost,
+    pub source: Box<dyn ByteSource>,
+    pub size: Option<u64>,
 }
 
 pub struct InputScanner;

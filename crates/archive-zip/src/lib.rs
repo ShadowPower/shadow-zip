@@ -1,11 +1,12 @@
 use std::{
     fs::File,
+    io::Cursor,
     path::{Path, PathBuf},
 };
 
 use shadow_zip_archive_core::{
-    ArchiveBackend, InputScanner, OpenArchive, SafeWriter, StreamLimits, create_pipeline,
-    extension_confidence, quick_test_pipeline, random_access_extract_pipeline,
+    ArchiveBackend, EntryReader, InputScanner, OpenArchive, SafeWriter, StreamLimits,
+    create_pipeline, extension_confidence, quick_test_pipeline, random_access_extract_pipeline,
 };
 use shadow_zip_domain::*;
 use zip::{ZipWriter, read::ZipArchive as ZipReader, write::SimpleFileOptions};
@@ -120,6 +121,32 @@ impl OpenArchive for ZipArchive {
         Ok(EntryStream {
             entry,
             access_cost: AccessCost::Random,
+        })
+    }
+
+    fn open_entry_reader(
+        &mut self,
+        entry: EntryId,
+        _options: StreamOptions,
+    ) -> Result<EntryReader, ArchiveError> {
+        let mut reader = self.open_reader()?;
+        let mut file = reader.by_index(entry.0 as usize).map_err(zip_error)?;
+        if file.is_dir() {
+            return Err(ArchiveError::new(
+                ArchiveErrorKind::Internal,
+                "Cannot open a directory entry as a byte stream",
+            )
+            .with_backend("zip")
+            .with_entry_path(file.name().to_string()));
+        }
+        let size = Some(file.size());
+        let mut bytes = Vec::with_capacity(size.unwrap_or_default().min(16 * 1024 * 1024) as usize);
+        std::io::copy(&mut file, &mut bytes).map_err(io_error)?;
+        Ok(EntryReader {
+            entry,
+            access_cost: AccessCost::Random,
+            source: Box::new(Cursor::new(bytes)),
+            size,
         })
     }
 

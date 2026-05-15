@@ -1,0 +1,37 @@
+[package]
+name = "shadow-zip-cli"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "shadow-zip"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+shadow-zip-app-core.workspace = true
+shadow-zip-domain.workspace = true
+shadow-zip-platform.workspace = true
+shadow-zip-preview.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+assert_fs.workspace = true
+predicates.workspace = true
+tempfile.workspace = true
+zip.workspace = true
+tar.workspace = true
+flate2.workspace = true
+image.workspace = true
+serde_json.workspace = true
+shadow-zip-domain.workspace = true
+walkdir.workspace = true
+which.workspace = true
+xz2.workspace = true
+zstd.workspace = true
+
+[lints]
+workspace = true

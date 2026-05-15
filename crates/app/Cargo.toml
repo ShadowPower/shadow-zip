@@ -7,21 +7,11 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 gpui.workspace = true
-parking_lot.workspace = true
-serde_json.workspace = true
 uuid.workspace = true
-shadow-zip-archive-core.workspace = true
-shadow-zip-archive-zip.workspace = true
-shadow-zip-archive-7z.workspace = true
-shadow-zip-archive-tar.workspace = true
-shadow-zip-archive-rar.workspace = true
-shadow-zip-archive-libarchive.workspace = true
-shadow-zip-cache.workspace = true
+shadow-zip-app-core.workspace = true
 shadow-zip-domain.workspace = true
 shadow-zip-i18n.workspace = true
 shadow-zip-platform.workspace = true
-shadow-zip-preview.workspace = true
-shadow-zip-task-engine.workspace = true
 shadow-zip-ui.workspace = true
 
 [lints]
