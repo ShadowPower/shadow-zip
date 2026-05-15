@@ -9,7 +9,7 @@ use shadow_zip_archive_core::{
     create_pipeline, extension_confidence, quick_test_pipeline, random_access_extract_pipeline,
 };
 use shadow_zip_domain::*;
-use zip::{ZipWriter, read::ZipArchive as ZipReader, write::SimpleFileOptions};
+use zip::{ZipWriter, read::ZipArchive as ZipReader, read::ZipFile, write::SimpleFileOptions};
 
 pub struct ZipBackend;
 
@@ -29,10 +29,11 @@ impl ArchiveBackend for ZipBackend {
     fn open(
         &self,
         source: ArchiveSource,
-        _options: OpenOptions,
+        options: OpenOptions,
     ) -> Result<Box<dyn OpenArchive>, ArchiveError> {
         Ok(Box::new(ZipArchive {
             source,
+            password: options.password,
             info: ArchiveInfo {
                 format: ArchiveFormat::Zip,
                 display_name: "ZIP archive".into(),
@@ -72,6 +73,7 @@ impl ArchiveBackend for ZipBackend {
 
 struct ZipArchive {
     source: ArchiveSource,
+    password: Option<String>,
     info: ArchiveInfo,
     listing_cache: Option<ArchiveListing>,
 }
@@ -127,10 +129,11 @@ impl OpenArchive for ZipArchive {
     fn open_entry_reader(
         &mut self,
         entry: EntryId,
-        _options: StreamOptions,
+        options: StreamOptions,
     ) -> Result<EntryReader, ArchiveError> {
         let mut reader = self.open_reader()?;
-        let mut file = reader.by_index(entry.0 as usize).map_err(zip_error)?;
+        let password = options.password.as_ref().or(self.password.as_ref());
+        let mut file = zip_file_by_index(&mut reader, entry.0 as usize, password)?;
         if file.is_dir() {
             return Err(ArchiveError::new(
                 ArchiveErrorKind::Internal,
@@ -150,7 +153,15 @@ impl OpenArchive for ZipArchive {
         })
     }
 
-    fn test(&mut self, _options: TestOptions) -> Result<TaskPlan, ArchiveError> {
+    fn test(&mut self, options: TestOptions) -> Result<TaskPlan, ArchiveError> {
+        let mut reader = self.open_reader()?;
+        let password = options.password.as_ref().or(self.password.as_ref());
+        for index in 0..reader.len() {
+            let mut file = zip_file_by_index(&mut reader, index, password)?;
+            if !file.is_dir() {
+                std::io::copy(&mut file, &mut std::io::sink()).map_err(io_error)?;
+            }
+        }
         Ok(
             TaskPlan::new(TaskKind::Test, "Test ZIP archive").native(quick_test_pipeline(vec![
                 PipelineStep::ReadCentralDirectory,
@@ -176,7 +187,7 @@ impl ZipArchive {
         let mut reader = self.open_reader()?;
         let mut entries = Vec::with_capacity(reader.len());
         for index in 0..reader.len() {
-            let file = reader.by_index(index).map_err(zip_error)?;
+            let file = zip_file_by_index(&mut reader, index, self.password.as_ref())?;
             let raw_path = file.name().to_string();
             entries.push(ArchiveEntry {
                 id: EntryId(index as u64),
@@ -221,7 +232,8 @@ impl ZipArchive {
         let writer = SafeWriter::new(destination.to_path_buf(), StreamLimits::default())
             .with_overwrite_policy(options.overwrite_policy);
         for entry in selected_entries {
-            let mut file = reader.by_index(entry.id.0 as usize).map_err(zip_error)?;
+            let mut file =
+                zip_file_by_index(&mut reader, entry.id.0 as usize, options.password.as_ref())?;
             if entry.kind == EntryKind::Directory {
                 writer.create_dir(&entry.raw_path)?;
             } else {
@@ -290,10 +302,30 @@ fn zip_capabilities() -> ArchiveCapabilities {
     }
 }
 
+fn zip_file_by_index<'a>(
+    reader: &'a mut ZipReader<File>,
+    index: usize,
+    password: Option<&String>,
+) -> Result<ZipFile<'a, File>, ArchiveError> {
+    match password {
+        Some(password) => reader
+            .by_index_decrypt(index, password.as_bytes())
+            .map_err(zip_error),
+        None => reader.by_index(index).map_err(zip_error),
+    }
+}
+
 fn zip_error(error: zip::result::ZipError) -> ArchiveError {
-    ArchiveError::new(ArchiveErrorKind::CorruptArchive, "ZIP operation failed")
+    let text = error.to_string();
+    let lower = text.to_ascii_lowercase();
+    let kind = if lower.contains("password") {
+        ArchiveErrorKind::InvalidPassword
+    } else {
+        ArchiveErrorKind::CorruptArchive
+    };
+    ArchiveError::new(kind, "ZIP operation failed")
         .with_backend("zip")
-        .with_technical_detail(error.to_string())
+        .with_technical_detail(text)
 }
 
 fn io_error(error: std::io::Error) -> ArchiveError {

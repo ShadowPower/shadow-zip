@@ -1,8 +1,8 @@
-use std::path::Path;
+use std::{io::Cursor, path::Path};
 
 use shadow_zip_archive_core::{
-    ArchiveBackend, OpenArchive, create_pipeline, extension_confidence, quick_test_pipeline,
-    random_access_extract_pipeline,
+    ArchiveBackend, EntryReader, OpenArchive, SafeWriter, StreamLimits, create_pipeline,
+    extension_confidence, quick_test_pipeline, random_access_extract_pipeline,
 };
 use shadow_zip_domain::*;
 
@@ -24,12 +24,13 @@ impl ArchiveBackend for SevenZipBackend {
     fn open(
         &self,
         source: ArchiveSource,
-        _options: OpenOptions,
+        options: OpenOptions,
     ) -> Result<Box<dyn OpenArchive>, ArchiveError> {
         let is_multi_volume = source.path().is_some_and(is_split_7z_volume);
         let display_name = source.display_name();
         Ok(Box::new(SevenZipArchive {
             source,
+            password: options.password,
             info: ArchiveInfo {
                 format: ArchiveFormat::SevenZip,
                 display_name,
@@ -74,6 +75,7 @@ impl ArchiveBackend for SevenZipBackend {
 
 struct SevenZipArchive {
     source: ArchiveSource,
+    password: Option<String>,
     info: ArchiveInfo,
 }
 
@@ -94,7 +96,11 @@ impl OpenArchive for SevenZipArchive {
             ));
         };
         let mut listing = ArchiveListing::default();
-        let archive = sevenz_rust2::Archive::open(path).map_err(map_7z_error)?;
+        let archive = sevenz_rust2::Archive::open_with_password(
+            path,
+            &password_from_option(self.password.as_ref()),
+        )
+        .map_err(map_7z_error)?;
         for (index, entry) in archive.files.iter().enumerate() {
             let path = entry.name.replace('\\', "/");
             listing.entries.push(ArchiveEntry {
@@ -111,7 +117,11 @@ impl OpenArchive for SevenZipArchive {
                 compressed_size: Some(entry.compressed_size),
                 modified_at: None,
                 method: None,
-                encrypted: false,
+                encrypted: archive
+                    .folders
+                    .iter()
+                    .flat_map(|folder| &folder.coders)
+                    .any(|coder| coder.decompression_method_id() == [0x06, 0xf1, 0x07, 0x01]),
                 safety: classify_entry_path(&entry.name),
             });
         }
@@ -126,8 +136,9 @@ impl OpenArchive for SevenZipArchive {
     fn extract_all(
         &mut self,
         destination: &Path,
-        _options: ExtractOptions,
+        options: ExtractOptions,
     ) -> Result<TaskPlan, ArchiveError> {
+        self.extract_to(destination, None, options)?;
         Ok(self.extract_plan(destination, None))
     }
 
@@ -135,8 +146,9 @@ impl OpenArchive for SevenZipArchive {
         &mut self,
         entries: &[EntryId],
         destination: &Path,
-        _options: ExtractOptions,
+        options: ExtractOptions,
     ) -> Result<TaskPlan, ArchiveError> {
+        self.extract_to(destination, Some(entries), options)?;
         Ok(self.extract_plan(destination, Some(entries.len())))
     }
 
@@ -155,7 +167,62 @@ impl OpenArchive for SevenZipArchive {
         })
     }
 
-    fn test(&mut self, _options: TestOptions) -> Result<TaskPlan, ArchiveError> {
+    fn open_entry_reader(
+        &mut self,
+        entry: EntryId,
+        options: StreamOptions,
+    ) -> Result<EntryReader, ArchiveError> {
+        let Some(path) = self.source.path() else {
+            return Err(ArchiveError::new(
+                ArchiveErrorKind::UnsupportedFormat,
+                "7z entry reading requires a local file",
+            ));
+        };
+        let password = options.password.as_ref().or(self.password.as_ref());
+        let mut reader = sevenz_rust2::SevenZReader::open(path, password_from_option(password))
+            .map_err(map_7z_error)?;
+        let mut bytes = Vec::new();
+        let mut found = false;
+        let mut index = 0_u64;
+        reader
+            .for_each_entries(|archive_entry, source| {
+                let current = EntryId(index);
+                index += 1;
+                if archive_entry.is_directory() {
+                    return Ok(true);
+                }
+                if found {
+                    return Ok(false);
+                }
+                if current != entry {
+                    return Ok(true);
+                }
+                std::io::copy(source, &mut bytes).map_err(sevenz_rust2::Error::io)?;
+                found = true;
+                Ok(false)
+            })
+            .map_err(map_7z_error)?;
+        if !found {
+            return Err(ArchiveError::new(
+                ArchiveErrorKind::Internal,
+                "Entry id not found",
+            ));
+        }
+        let size = Some(bytes.len() as u64);
+        Ok(EntryReader {
+            entry,
+            access_cost: if self.info.is_solid {
+                AccessCost::SolidBlockScan
+            } else {
+                AccessCost::Random
+            },
+            source: Box::new(Cursor::new(bytes)),
+            size,
+        })
+    }
+
+    fn test(&mut self, options: TestOptions) -> Result<TaskPlan, ArchiveError> {
+        self.test_archive(options)?;
         Ok(
             TaskPlan::new(TaskKind::Test, "Test 7z archive").native(quick_test_pipeline(vec![
                 PipelineStep::ReadSevenZipHeader,
@@ -166,6 +233,66 @@ impl OpenArchive for SevenZipArchive {
 }
 
 impl SevenZipArchive {
+    fn extract_to(
+        &self,
+        destination: &Path,
+        selected: Option<&[EntryId]>,
+        options: ExtractOptions,
+    ) -> Result<(), ArchiveError> {
+        let Some(path) = self.source.path() else {
+            return Err(ArchiveError::new(
+                ArchiveErrorKind::UnsupportedFormat,
+                "7z extraction requires a local file",
+            ));
+        };
+        let password = options.password.as_ref().or(self.password.as_ref());
+        let mut reader = sevenz_rust2::SevenZReader::open(path, password_from_option(password))
+            .map_err(map_7z_error)?;
+        let writer = SafeWriter::new(destination.to_path_buf(), StreamLimits::default())
+            .with_overwrite_policy(options.overwrite_policy);
+        let mut index = 0_u64;
+        reader
+            .for_each_entries(|entry, source| {
+                let current = EntryId(index);
+                index += 1;
+                if selected.is_some_and(|ids| !ids.contains(&current)) {
+                    return Ok(true);
+                }
+                let entry_path = entry.name().replace('\\', "/");
+                if entry.is_directory() {
+                    writer
+                        .create_dir(&entry_path)
+                        .map_err(archive_error_to_7z)?;
+                } else {
+                    let mut bytes = Vec::with_capacity(entry.size().min(16 * 1024 * 1024) as usize);
+                    std::io::copy(source, &mut bytes).map_err(sevenz_rust2::Error::io)?;
+                    writer
+                        .write_stream(&entry_path, &mut Cursor::new(bytes), |_| Ok(()))
+                        .map_err(archive_error_to_7z)?;
+                }
+                Ok(true)
+            })
+            .map_err(map_7z_error)
+    }
+
+    fn test_archive(&self, options: TestOptions) -> Result<(), ArchiveError> {
+        let Some(path) = self.source.path() else {
+            return Err(ArchiveError::new(
+                ArchiveErrorKind::UnsupportedFormat,
+                "7z testing requires a local file",
+            ));
+        };
+        let password = options.password.as_ref().or(self.password.as_ref());
+        let mut reader = sevenz_rust2::SevenZReader::open(path, password_from_option(password))
+            .map_err(map_7z_error)?;
+        reader
+            .for_each_entries(|_entry, source| {
+                std::io::copy(source, &mut std::io::sink()).map_err(sevenz_rust2::Error::io)?;
+                Ok(true)
+            })
+            .map_err(map_7z_error)
+    }
+
     fn extract_plan(&self, destination: &Path, entries: Option<usize>) -> TaskPlan {
         let plan = TaskPlan::new(
             TaskKind::Extract,
@@ -189,6 +316,16 @@ impl SevenZipArchive {
             plan
         }
     }
+}
+
+fn password_from_option(password: Option<&String>) -> sevenz_rust2::Password {
+    password
+        .map(|password| sevenz_rust2::Password::from(password.as_str()))
+        .unwrap_or_else(sevenz_rust2::Password::empty)
+}
+
+fn archive_error_to_7z(error: ArchiveError) -> sevenz_rust2::Error {
+    sevenz_rust2::Error::io(std::io::Error::other(error.to_string()))
 }
 
 fn is_split_7z_volume(path: &Path) -> bool {

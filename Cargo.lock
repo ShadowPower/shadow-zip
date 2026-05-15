@@ -5724,13 +5724,17 @@ version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3e35b0d7be5029b57e0abf50185b1c2084efd1729083d5093c2548f2c6bf999"
 dependencies = [
+ "aes",
  "bit-set",
  "byteorder",
+ "cbc",
  "crc32fast",
  "filetime_creation",
+ "getrandom 0.3.4",
  "js-sys",
  "lzma-rust2",
  "nt-time",
+ "sha2",
  "wasm-bindgen",
 ]
 

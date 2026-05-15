@@ -896,9 +896,7 @@ pub fn build_backends(platform_config: &PlatformConfig) -> Vec<Box<dyn ArchiveBa
         Box::new(ZipBackend),
         Box::new(SevenZipBackend),
         Box::new(TarBackend),
-        Box::new(RarBackend::new(
-            platform_config.external_helpers.unrar_path.is_some(),
-        )),
+        Box::new(RarBackend::new(true)),
         Box::new(LibarchiveBackend::new(
             platform_config.external_helpers.libarchive_path.is_some(),
         )),

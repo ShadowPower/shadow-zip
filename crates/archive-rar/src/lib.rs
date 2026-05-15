@@ -1,27 +1,22 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use shadow_zip_archive_core::{ArchiveBackend, OpenArchive, helper_plan};
+use shadow_zip_archive_core::{ArchiveBackend, OpenArchive};
 use shadow_zip_domain::*;
 
 pub struct RarBackend {
     helper_available: bool,
-    helper_path: PathBuf,
 }
 
 impl RarBackend {
     pub fn new(helper_available: bool) -> Self {
-        Self {
-            helper_available,
-            helper_path: PathBuf::from("unrar"),
-        }
+        Self { helper_available }
     }
 
     pub fn discover() -> Self {
         which::which("unrar")
             .or_else(|_| which::which("rar"))
-            .map(|helper_path| Self {
+            .map(|_| Self {
                 helper_available: true,
-                helper_path,
             })
             .unwrap_or_default()
     }
@@ -57,20 +52,12 @@ impl ArchiveBackend for RarBackend {
     fn open(
         &self,
         source: ArchiveSource,
-        _options: OpenOptions,
+        options: OpenOptions,
     ) -> Result<Box<dyn OpenArchive>, ArchiveError> {
-        if !self.helper_available {
-            return Err(ArchiveError::new(
-                ArchiveErrorKind::BackendUnavailable,
-                "RAR support requires an UnRAR-compatible helper",
-            )
-            .with_backend(self.name()));
-        }
-
         let display_name = source.display_name();
         Ok(Box::new(RarArchive {
             source,
-            helper_path: self.helper_path.clone(),
+            password: options.password,
             info: ArchiveInfo {
                 format: ArchiveFormat::Rar,
                 display_name,
@@ -109,7 +96,7 @@ impl ArchiveBackend for RarBackend {
 
 struct RarArchive {
     source: ArchiveSource,
-    helper_path: PathBuf,
+    password: Option<String>,
     info: ArchiveInfo,
 }
 
@@ -129,30 +116,48 @@ impl OpenArchive for RarArchive {
                 "RAR listing requires a local file",
             ));
         };
-        let archive_path = path.to_string_lossy().into_owned();
-        let args = ["v", "-c-", archive_path.as_str()];
-        let plan = helper_plan(
-            ExternalHelperKind::Unrar,
-            &self.helper_path,
-            args,
-            ["v", "-c-", "<archive>"],
-        );
-        let _ = plan;
-        Ok(parse_unrar_listing("", &self.info))
+        let archive = rar_archive(path, self.password.as_ref()).open_for_listing();
+        let mut archive = archive.map_err(map_unrar_crate_error)?;
+        let mut listing = ArchiveListing::default();
+        for (index, header) in (&mut archive).enumerate() {
+            let header = header.map_err(map_unrar_crate_error)?;
+            let name = header.filename.to_string_lossy().replace('\\', "/");
+            listing.entries.push(ArchiveEntry {
+                id: EntryId(index as u64),
+                raw_path: name.clone(),
+                normalized_path: name.clone(),
+                display_path: name.clone(),
+                kind: if header.is_directory() {
+                    EntryKind::Directory
+                } else {
+                    EntryKind::File
+                },
+                size: Some(header.unpacked_size),
+                compressed_size: None,
+                modified_at: None,
+                method: Some(self.info.format.to_string()),
+                encrypted: header.is_encrypted(),
+                safety: classify_entry_path(&name),
+            });
+        }
+        listing.is_complete = true;
+        self.info.entry_count = Some(listing.entries.len() as u64);
+        self.info.is_encrypted = listing.entries.iter().any(|entry| entry.encrypted);
+        self.info.has_header_encryption = archive.has_encrypted_headers();
+        self.info.is_solid = archive.is_solid();
+        Ok(listing)
     }
 
     fn extract_all(
         &mut self,
         destination: &Path,
-        _options: ExtractOptions,
+        options: ExtractOptions,
     ) -> Result<TaskPlan, ArchiveError> {
-        let mut plan = TaskPlan::new(
+        self.extract_to(destination, None, options)?;
+        let plan = TaskPlan::new(
             TaskKind::Extract,
             format!("Extract RAR to {}", destination.display()),
         );
-        plan.requires_external_helper = true;
-        plan.execution =
-            self::unrar_plan(&self.helper_path, &self.source, destination, &["x", "-y"]);
         Ok(plan)
     }
 
@@ -160,16 +165,14 @@ impl OpenArchive for RarArchive {
         &mut self,
         entries: &[EntryId],
         destination: &Path,
-        _options: ExtractOptions,
+        options: ExtractOptions,
     ) -> Result<TaskPlan, ArchiveError> {
+        self.extract_to(destination, Some(entries), options)?;
         let mut plan = TaskPlan::new(
             TaskKind::Extract,
             format!("Extract RAR to {}", destination.display()),
         );
         plan.estimated_entries = Some(entries.len() as u64);
-        plan.requires_external_helper = true;
-        plan.execution =
-            self::unrar_plan(&self.helper_path, &self.source, destination, &["x", "-y"]);
         Ok(plan)
     }
 
@@ -184,23 +187,74 @@ impl OpenArchive for RarArchive {
         })
     }
 
-    fn test(&mut self, _options: TestOptions) -> Result<TaskPlan, ArchiveError> {
-        let mut plan = TaskPlan::new(TaskKind::Test, "Test RAR archive");
-        plan.requires_external_helper = true;
-        plan.execution = TaskExecutionPlan::ExternalHelper(ExternalHelperPlan {
-            helper_kind: ExternalHelperKind::Unrar,
-            executable: self.helper_path.clone(),
-            args: self
-                .source
-                .path()
-                .map(|p| vec!["t".into(), p.display().to_string()])
-                .unwrap_or_else(|| vec!["t".into()]),
-            working_dir: None,
-            timeout_ms: 30 * 60 * 1000,
-            output_limit_bytes: 4 * 1024 * 1024,
-            redacted_args: vec!["t".into()],
-        });
-        Ok(plan)
+    fn test(&mut self, options: TestOptions) -> Result<TaskPlan, ArchiveError> {
+        self.test_archive(options)?;
+        Ok(TaskPlan::new(TaskKind::Test, "Test RAR archive"))
+    }
+}
+
+impl RarArchive {
+    fn extract_to(
+        &self,
+        destination: &Path,
+        selected: Option<&[EntryId]>,
+        options: ExtractOptions,
+    ) -> Result<(), ArchiveError> {
+        let Some(path) = self.source.path() else {
+            return Err(ArchiveError::new(
+                ArchiveErrorKind::UnsupportedFormat,
+                "RAR extraction requires a local file",
+            ));
+        };
+        let password = options.password.as_ref().or(self.password.as_ref());
+        let mut archive = rar_archive(path, password)
+            .open_for_processing()
+            .map_err(map_unrar_crate_error)?;
+        let mut index = 0_u64;
+        while let Some(header) = archive.read_header().map_err(map_unrar_crate_error)? {
+            let current = EntryId(index);
+            index += 1;
+            archive = if selected.is_none_or(|ids| ids.contains(&current)) {
+                if header.entry().is_file() {
+                    header
+                        .extract_with_base(destination)
+                        .map_err(map_unrar_crate_error)?
+                } else {
+                    header.skip().map_err(map_unrar_crate_error)?
+                }
+            } else {
+                header.skip().map_err(map_unrar_crate_error)?
+            };
+        }
+        Ok(())
+    }
+
+    fn test_archive(&self, options: TestOptions) -> Result<(), ArchiveError> {
+        let Some(path) = self.source.path() else {
+            return Err(ArchiveError::new(
+                ArchiveErrorKind::UnsupportedFormat,
+                "RAR testing requires a local file",
+            ));
+        };
+        let password = options.password.as_ref().or(self.password.as_ref());
+        let mut archive = rar_archive(path, password)
+            .open_for_processing()
+            .map_err(map_unrar_crate_error)?;
+        while let Some(header) = archive.read_header().map_err(map_unrar_crate_error)? {
+            archive = if header.entry().is_file() {
+                header.test().map_err(map_unrar_crate_error)?
+            } else {
+                header.skip().map_err(map_unrar_crate_error)?
+            };
+        }
+        Ok(())
+    }
+}
+
+fn rar_archive<'a>(path: &'a Path, password: Option<&'a String>) -> unrar::Archive<'a> {
+    match password {
+        Some(password) => unrar::Archive::with_password(path, password),
+        None => unrar::Archive::new(path),
     }
 }
 
@@ -261,38 +315,13 @@ pub fn map_unrar_error(stderr: &str) -> ArchiveError {
         .with_technical_detail(RedactionPolicy::default().redact_text(stderr))
 }
 
-fn unrar_plan(
-    helper_path: &Path,
-    source: &ArchiveSource,
-    destination: &Path,
-    args: &[&str],
-) -> TaskExecutionPlan {
-    TaskExecutionPlan::ExternalHelper(ExternalHelperPlan {
-        helper_kind: ExternalHelperKind::Unrar,
-        executable: helper_path.to_path_buf(),
-        args: args
-            .iter()
-            .map(|arg| (*arg).to_string())
-            .chain(source.path().map(|path| path.display().to_string()))
-            .chain([destination.display().to_string()])
-            .collect(),
-        working_dir: None,
-        timeout_ms: 60 * 60 * 1000,
-        output_limit_bytes: 8 * 1024 * 1024,
-        redacted_args: args
-            .iter()
-            .map(|arg| (*arg).to_string())
-            .chain(["<destination>".into()])
-            .collect(),
-    })
+fn map_unrar_crate_error(error: unrar::error::UnrarError) -> ArchiveError {
+    map_unrar_error(&error.to_string())
 }
 
 fn rar_capabilities(helper_available: bool) -> ArchiveCapabilities {
-    let helper_level = if helper_available {
-        CapabilityLevel::External
-    } else {
-        CapabilityLevel::Unsupported
-    };
+    let _ = helper_available;
+    let helper_level = CapabilityLevel::Full;
 
     ArchiveCapabilities {
         list: helper_level,
