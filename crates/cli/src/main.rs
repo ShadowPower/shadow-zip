@@ -246,12 +246,58 @@ enum SymlinkArg {
 #[derive(Clone, ValueEnum)]
 enum FormatArg {
     Zip,
+    ZipX,
     SevenZip,
     Tar,
     TarGz,
     TarXz,
     TarZst,
+    TarBz,
+    TarBz2,
+    TarLzma,
+    TarLz,
+    TarZ,
+    TarBr,
     Rar,
+    Lzh,
+    Iso,
+    Gz,
+    Xz,
+    Ace,
+    Alz,
+    Arj,
+    Bh,
+    Egg,
+    Lha,
+    Pma,
+    Cab,
+    Compound,
+    Msi,
+    Deb,
+    Xpi,
+    Asar,
+    Nsis,
+    Udf,
+    Bin,
+    Img,
+    Isz,
+    Daa,
+    Br,
+    Bz,
+    Bz2,
+    Zstd,
+    Lz4,
+    Lz,
+    Lzma,
+    Z,
+    Wim,
+    Swm,
+    Zpaq,
+    Pea,
+    Aes,
+    Uu,
+    Uue,
+    Xxe,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -878,12 +924,58 @@ fn map_symlink(policy: &SymlinkArg) -> SymlinkPolicy {
 fn map_format(format: &FormatArg) -> ArchiveFormat {
     match format {
         FormatArg::Zip => ArchiveFormat::Zip,
+        FormatArg::ZipX => ArchiveFormat::ZipX,
         FormatArg::SevenZip => ArchiveFormat::SevenZip,
         FormatArg::Tar => ArchiveFormat::Tar,
         FormatArg::TarGz => ArchiveFormat::TarGz,
         FormatArg::TarXz => ArchiveFormat::TarXz,
         FormatArg::TarZst => ArchiveFormat::TarZst,
+        FormatArg::TarBz => ArchiveFormat::TarBz,
+        FormatArg::TarBz2 => ArchiveFormat::TarBz2,
+        FormatArg::TarLzma => ArchiveFormat::TarLzma,
+        FormatArg::TarLz => ArchiveFormat::TarLz,
+        FormatArg::TarZ => ArchiveFormat::TarZ,
+        FormatArg::TarBr => ArchiveFormat::TarBr,
         FormatArg::Rar => ArchiveFormat::Rar,
+        FormatArg::Lzh => ArchiveFormat::Lzh,
+        FormatArg::Iso => ArchiveFormat::Iso,
+        FormatArg::Gz => ArchiveFormat::Gz,
+        FormatArg::Xz => ArchiveFormat::Xz,
+        FormatArg::Ace => ArchiveFormat::Ace,
+        FormatArg::Alz => ArchiveFormat::Alz,
+        FormatArg::Arj => ArchiveFormat::Arj,
+        FormatArg::Bh => ArchiveFormat::Bh,
+        FormatArg::Egg => ArchiveFormat::Egg,
+        FormatArg::Lha => ArchiveFormat::Lha,
+        FormatArg::Pma => ArchiveFormat::Pma,
+        FormatArg::Cab => ArchiveFormat::Cab,
+        FormatArg::Compound => ArchiveFormat::Compound,
+        FormatArg::Msi => ArchiveFormat::Msi,
+        FormatArg::Deb => ArchiveFormat::Deb,
+        FormatArg::Xpi => ArchiveFormat::Xpi,
+        FormatArg::Asar => ArchiveFormat::Asar,
+        FormatArg::Nsis => ArchiveFormat::Nsis,
+        FormatArg::Udf => ArchiveFormat::Udf,
+        FormatArg::Bin => ArchiveFormat::Bin,
+        FormatArg::Img => ArchiveFormat::Img,
+        FormatArg::Isz => ArchiveFormat::Isz,
+        FormatArg::Daa => ArchiveFormat::Daa,
+        FormatArg::Br => ArchiveFormat::Br,
+        FormatArg::Bz => ArchiveFormat::Bz,
+        FormatArg::Bz2 => ArchiveFormat::Bz2,
+        FormatArg::Zstd => ArchiveFormat::Zstd,
+        FormatArg::Lz4 => ArchiveFormat::Lz4,
+        FormatArg::Lz => ArchiveFormat::Lz,
+        FormatArg::Lzma => ArchiveFormat::Lzma,
+        FormatArg::Z => ArchiveFormat::Z,
+        FormatArg::Wim => ArchiveFormat::Wim,
+        FormatArg::Swm => ArchiveFormat::Swm,
+        FormatArg::Zpaq => ArchiveFormat::Zpaq,
+        FormatArg::Pea => ArchiveFormat::Pea,
+        FormatArg::Aes => ArchiveFormat::Aes,
+        FormatArg::Uu => ArchiveFormat::Uu,
+        FormatArg::Uue => ArchiveFormat::Uue,
+        FormatArg::Xxe => ArchiveFormat::Xxe,
     }
 }
 
@@ -906,12 +998,104 @@ fn infer_format(path: &Path) -> ArchiveFormat {
         ArchiveFormat::TarXz
     } else if name.ends_with(".tar.zst") || name.ends_with(".tzst") {
         ArchiveFormat::TarZst
+    } else if name.ends_with(".tar.bz2") || name.ends_with(".tbz2") {
+        ArchiveFormat::TarBz2
+    } else if name.ends_with(".tar.bz") || name.ends_with(".tbz") {
+        ArchiveFormat::TarBz
+    } else if name.ends_with(".tar.lzma") || name.ends_with(".tlz") {
+        ArchiveFormat::TarLzma
+    } else if name.ends_with(".tar.lz") {
+        ArchiveFormat::TarLz
+    } else if name.ends_with(".tar.z") {
+        ArchiveFormat::TarZ
+    } else if name.ends_with(".tar.br") {
+        ArchiveFormat::TarBr
     } else if name.ends_with(".tar") {
         ArchiveFormat::Tar
+    } else if name.ends_with(".zipx") {
+        ArchiveFormat::ZipX
     } else if name.ends_with(".7z") {
         ArchiveFormat::SevenZip
     } else if name.ends_with(".rar") {
         ArchiveFormat::Rar
+    } else if name.ends_with(".lzh") {
+        ArchiveFormat::Lzh
+    } else if name.ends_with(".iso") {
+        ArchiveFormat::Iso
+    } else if name.ends_with(".gz") {
+        ArchiveFormat::Gz
+    } else if name.ends_with(".xz") {
+        ArchiveFormat::Xz
+    } else if name.ends_with(".ace") {
+        ArchiveFormat::Ace
+    } else if name.ends_with(".alz") {
+        ArchiveFormat::Alz
+    } else if name.ends_with(".arj") {
+        ArchiveFormat::Arj
+    } else if name.ends_with(".bh") {
+        ArchiveFormat::Bh
+    } else if name.ends_with(".egg") {
+        ArchiveFormat::Egg
+    } else if name.ends_with(".lha") {
+        ArchiveFormat::Lha
+    } else if name.ends_with(".pma") {
+        ArchiveFormat::Pma
+    } else if name.ends_with(".cab") {
+        ArchiveFormat::Cab
+    } else if name.ends_with(".cfb") || name.ends_with(".compound") {
+        ArchiveFormat::Compound
+    } else if name.ends_with(".msi") {
+        ArchiveFormat::Msi
+    } else if name.ends_with(".deb") {
+        ArchiveFormat::Deb
+    } else if name.ends_with(".xpi") {
+        ArchiveFormat::Xpi
+    } else if name.ends_with(".asar") {
+        ArchiveFormat::Asar
+    } else if name.ends_with(".nsis") {
+        ArchiveFormat::Nsis
+    } else if name.ends_with(".udf") {
+        ArchiveFormat::Udf
+    } else if name.ends_with(".bin") {
+        ArchiveFormat::Bin
+    } else if name.ends_with(".img") {
+        ArchiveFormat::Img
+    } else if name.ends_with(".isz") {
+        ArchiveFormat::Isz
+    } else if name.ends_with(".daa") {
+        ArchiveFormat::Daa
+    } else if name.ends_with(".br") {
+        ArchiveFormat::Br
+    } else if name.ends_with(".bz2") {
+        ArchiveFormat::Bz2
+    } else if name.ends_with(".bz") {
+        ArchiveFormat::Bz
+    } else if name.ends_with(".zst") || name.ends_with(".zstd") {
+        ArchiveFormat::Zstd
+    } else if name.ends_with(".lz4") {
+        ArchiveFormat::Lz4
+    } else if name.ends_with(".lz") {
+        ArchiveFormat::Lz
+    } else if name.ends_with(".lzma") {
+        ArchiveFormat::Lzma
+    } else if name.ends_with(".z") {
+        ArchiveFormat::Z
+    } else if name.ends_with(".wim") {
+        ArchiveFormat::Wim
+    } else if name.ends_with(".swm") {
+        ArchiveFormat::Swm
+    } else if name.ends_with(".zpaq") {
+        ArchiveFormat::Zpaq
+    } else if name.ends_with(".pea") {
+        ArchiveFormat::Pea
+    } else if name.ends_with(".aes") {
+        ArchiveFormat::Aes
+    } else if name.ends_with(".uu") {
+        ArchiveFormat::Uu
+    } else if name.ends_with(".uue") {
+        ArchiveFormat::Uue
+    } else if name.ends_with(".xxe") {
+        ArchiveFormat::Xxe
     } else {
         ArchiveFormat::Zip
     }

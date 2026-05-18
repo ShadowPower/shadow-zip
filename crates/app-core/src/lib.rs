@@ -2,7 +2,7 @@
 
 use std::{
     collections::BTreeMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -10,10 +10,15 @@ use std::{
 use fs_err as fs;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use shadow_zip_archive_7z::SevenZipBackend;
+use shadow_zip_archive_7z::{SevenZipBackend, create_7z_archive};
+use shadow_zip_archive_containers::ContainersBackend;
 use shadow_zip_archive_core::{ArchiveBackend, ArchiveService, OpenArchive, PreflightService};
+use shadow_zip_archive_encoded::{EncodedBackend, create_encoded_archive};
+use shadow_zip_archive_images::{ImageArchiveBackend, create_iso_archive};
+use shadow_zip_archive_legacy::LegacyArchiveBackend;
 use shadow_zip_archive_libarchive::LibarchiveBackend;
 use shadow_zip_archive_rar::RarBackend;
+use shadow_zip_archive_stream::{StreamBackend, create_stream_archive};
 use shadow_zip_archive_tar::{TarBackend, create_tar_archive};
 use shadow_zip_archive_zip::{ZipBackend, create_zip_archive};
 use shadow_zip_cache::{CacheConfig, CacheService, CacheSummary};
@@ -118,6 +123,81 @@ pub struct CreateResult {
     pub summary: TaskSummary,
     pub warnings: Vec<TaskWarning>,
 }
+
+type CreateHandler = fn(&[InputPath], &Path, CreateOptions) -> Result<(), ArchiveError>;
+
+struct CreateRoute {
+    formats: &'static [ArchiveFormat],
+    handler: CreateHandler,
+}
+
+enum CreateDispatch {
+    Immediate { warnings: Vec<TaskWarning> },
+    Planned { plan: TaskPlan },
+}
+
+const ZIP_CREATE_FORMATS: &[ArchiveFormat] = &[ArchiveFormat::Zip, ArchiveFormat::ZipX];
+const TAR_CREATE_FORMATS: &[ArchiveFormat] = &[ArchiveFormat::Tar];
+const SEVEN_ZIP_CREATE_FORMATS: &[ArchiveFormat] = &[ArchiveFormat::SevenZip];
+const XPI_CREATE_FORMATS: &[ArchiveFormat] = &[ArchiveFormat::Xpi];
+const ENCODED_CREATE_FORMATS: &[ArchiveFormat] = &[
+    ArchiveFormat::Uu,
+    ArchiveFormat::Uue,
+    ArchiveFormat::Xxe,
+];
+const ISO_CREATE_FORMATS: &[ArchiveFormat] = &[ArchiveFormat::Iso];
+const STREAM_CREATE_FORMATS: &[ArchiveFormat] = &[
+    ArchiveFormat::TarGz,
+    ArchiveFormat::TarXz,
+    ArchiveFormat::TarZst,
+    ArchiveFormat::TarBz,
+    ArchiveFormat::TarBz2,
+    ArchiveFormat::TarLzma,
+    ArchiveFormat::TarLz,
+    ArchiveFormat::TarZ,
+    ArchiveFormat::TarBr,
+    ArchiveFormat::Gz,
+    ArchiveFormat::Xz,
+    ArchiveFormat::Br,
+    ArchiveFormat::Bz,
+    ArchiveFormat::Bz2,
+    ArchiveFormat::Zstd,
+    ArchiveFormat::Lz4,
+    ArchiveFormat::Lz,
+    ArchiveFormat::Lzma,
+    ArchiveFormat::Z,
+];
+
+const CREATE_ROUTES: &[CreateRoute] = &[
+    CreateRoute {
+        formats: ZIP_CREATE_FORMATS,
+        handler: create_zip_route,
+    },
+    CreateRoute {
+        formats: TAR_CREATE_FORMATS,
+        handler: create_tar_route,
+    },
+    CreateRoute {
+        formats: SEVEN_ZIP_CREATE_FORMATS,
+        handler: create_seven_zip_route,
+    },
+    CreateRoute {
+        formats: XPI_CREATE_FORMATS,
+        handler: create_xpi_route,
+    },
+    CreateRoute {
+        formats: ENCODED_CREATE_FORMATS,
+        handler: create_encoded_route,
+    },
+    CreateRoute {
+        formats: STREAM_CREATE_FORMATS,
+        handler: create_stream_route,
+    },
+    CreateRoute {
+        formats: ISO_CREATE_FORMATS,
+        handler: create_iso_route,
+    },
+];
 
 #[derive(Debug, Clone)]
 pub struct TestArchiveRequest {
@@ -592,69 +672,28 @@ impl ArchiveUseCases for AppCore {
             ));
         }
 
-        match request.options.format {
-            ArchiveFormat::Zip => {
-                create_zip_archive(
-                    &request.inputs,
-                    request.output.clone(),
-                    request.options.clone(),
-                )?;
-            }
-            ArchiveFormat::Tar
-            | ArchiveFormat::TarGz
-            | ArchiveFormat::TarXz
-            | ArchiveFormat::TarZst => {
-                create_tar_archive(&request.inputs, &request.output, request.options.clone())?;
-            }
-            ArchiveFormat::Rar => {
-                return Err(ArchiveError::new(
-                    ArchiveErrorKind::UnsupportedFormat,
-                    "RAR creation is intentionally not built in because it requires RARLAB licensing",
-                ));
-            }
-            ArchiveFormat::SevenZip | ArchiveFormat::Unknown => {
-                let backend = self
-                    .archive_service
-                    .backends()
-                    .iter()
-                    .find(|backend| {
-                        backend
-                            .backend_capabilities()
-                            .formats
-                            .contains(&request.options.format)
-                    })
-                    .ok_or_else(|| {
-                        ArchiveError::new(
-                            ArchiveErrorKind::UnsupportedFormat,
-                            "No backend can create the requested archive format",
-                        )
-                    })?;
-                let plan = backend.create_plan(
-                    &request.inputs,
-                    &request.output,
-                    request.options.clone(),
-                )?;
+        match self.dispatch_create(&request)? {
+            CreateDispatch::Immediate { warnings } => Ok(CreateResult {
+                task_id: Uuid::new_v4(),
+                summary: TaskSummary {
+                    processed_entries: request.inputs.len() as u64,
+                    ..TaskSummary::default()
+                },
+                warnings,
+            }),
+            CreateDispatch::Planned { plan } => {
                 let warnings = plan.warnings.clone();
                 let task_id = self.task_engine.enqueue(plan, TaskPriority::UserBlocking);
-                return Ok(CreateResult {
+                Ok(CreateResult {
                     task_id,
                     summary: TaskSummary {
                         processed_entries: request.inputs.len() as u64,
                         ..TaskSummary::default()
                     },
                     warnings,
-                });
+                })
             }
         }
-
-        Ok(CreateResult {
-            task_id: Uuid::new_v4(),
-            summary: TaskSummary {
-                processed_entries: request.inputs.len() as u64,
-                ..TaskSummary::default()
-            },
-            warnings: Vec::new(),
-        })
     }
 
     fn test_archive(
@@ -862,6 +901,111 @@ impl CreateRequest {
     }
 }
 
+impl AppCore {
+    fn dispatch_create(&self, request: &CreateRequest) -> Result<CreateDispatch, ArchiveError> {
+        if let Some(route) = CREATE_ROUTES
+            .iter()
+            .find(|route| route.formats.contains(&request.options.format))
+        {
+            (route.handler)(
+                &request.inputs,
+                &request.output,
+                request.options.clone(),
+            )?;
+            return Ok(CreateDispatch::Immediate {
+                warnings: Vec::new(),
+            });
+        }
+
+        if request.options.format == ArchiveFormat::Rar {
+            return Err(ArchiveError::new(
+                ArchiveErrorKind::UnsupportedFormat,
+                "RAR creation is intentionally not built in because it requires RARLAB licensing",
+            ));
+        }
+
+        let backend = self
+            .archive_service
+            .backends()
+            .iter()
+            .find(|backend| {
+                backend
+                    .backend_capabilities()
+                    .formats
+                    .contains(&request.options.format)
+            })
+            .ok_or_else(|| {
+                ArchiveError::new(
+                    ArchiveErrorKind::UnsupportedFormat,
+                    "No backend can create the requested archive format",
+                )
+            })?;
+        let plan = backend.create_plan(
+            &request.inputs,
+            &request.output,
+            request.options.clone(),
+        )?;
+        Ok(CreateDispatch::Planned { plan })
+    }
+}
+
+fn create_zip_route(
+    inputs: &[InputPath],
+    output: &Path,
+    options: CreateOptions,
+) -> Result<(), ArchiveError> {
+    create_zip_archive(inputs, output.to_path_buf(), options)
+}
+
+fn create_tar_route(
+    inputs: &[InputPath],
+    output: &Path,
+    options: CreateOptions,
+) -> Result<(), ArchiveError> {
+    create_tar_archive(inputs, output, options)
+}
+
+fn create_seven_zip_route(
+    inputs: &[InputPath],
+    output: &Path,
+    options: CreateOptions,
+) -> Result<(), ArchiveError> {
+    create_7z_archive(inputs, output, options)
+}
+
+fn create_xpi_route(
+    inputs: &[InputPath],
+    output: &Path,
+    mut options: CreateOptions,
+) -> Result<(), ArchiveError> {
+    options.format = ArchiveFormat::Zip;
+    create_zip_archive(inputs, output.to_path_buf(), options)
+}
+
+fn create_encoded_route(
+    inputs: &[InputPath],
+    output: &Path,
+    options: CreateOptions,
+) -> Result<(), ArchiveError> {
+    create_encoded_archive(inputs, output, options)
+}
+
+fn create_stream_route(
+    inputs: &[InputPath],
+    output: &Path,
+    options: CreateOptions,
+) -> Result<(), ArchiveError> {
+    create_stream_archive(inputs, output, options)
+}
+
+fn create_iso_route(
+    inputs: &[InputPath],
+    output: &Path,
+    options: CreateOptions,
+) -> Result<(), ArchiveError> {
+    create_iso_archive(inputs, output.to_path_buf(), options)
+}
+
 pub struct CoreArchiveSession {
     pub id: SessionId,
     pub source: ArchiveSource,
@@ -893,7 +1037,12 @@ pub fn build_backends(platform_config: &PlatformConfig) -> Vec<Box<dyn ArchiveBa
         Box::new(ZipBackend),
         Box::new(SevenZipBackend),
         Box::new(TarBackend),
+        Box::new(StreamBackend),
+        Box::new(ContainersBackend),
         Box::new(RarBackend::new(true)),
+        Box::new(LegacyArchiveBackend),
+        Box::new(ImageArchiveBackend),
+        Box::new(EncodedBackend),
         Box::new(LibarchiveBackend::new(
             platform_config.external_helpers.libarchive_path.is_some(),
         )),
@@ -901,10 +1050,7 @@ pub fn build_backends(platform_config: &PlatformConfig) -> Vec<Box<dyn ArchiveBa
 }
 
 pub fn listing_mode_for(format: ArchiveFormat) -> ListingMode {
-    if matches!(
-        format,
-        ArchiveFormat::Tar | ArchiveFormat::TarGz | ArchiveFormat::TarXz | ArchiveFormat::TarZst
-    ) {
+    if format.is_tar_stream() || format.is_single_file_stream() {
         ListingMode::Incremental
     } else {
         ListingMode::Fast

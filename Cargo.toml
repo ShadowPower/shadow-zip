@@ -8,8 +8,13 @@ members = [
     "crates/archive-zip",
     "crates/archive-7z",
     "crates/archive-tar",
+    "crates/archive-stream",
+    "crates/archive-containers",
     "crates/archive-rar",
+    "crates/archive-legacy",
+    "crates/archive-images",
     "crates/archive-libarchive",
+    "crates/archive-encoded",
     "crates/preview",
     "crates/cache",
     "crates/i18n",
@@ -28,6 +33,7 @@ bitflags = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 chardetng = "0.1"
 clap = { version = "4", features = ["derive"] }
+crc32fast = "1"
 directories = "6"
 encoding_rs = "0.8"
 fast_image_resize = "5"
@@ -35,7 +41,11 @@ flate2 = "1"
 fs2 = "0.4"
 fs-err = "3"
 hex = "0.4"
+bzip2 = "0.5"
+brotli = "8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp", "tiff", "ico", "avif"] }
+lz4_flex = "0.11"
+lzma-rust2 = { version = "0.2", features = ["encoder"] }
 notify-rust = "4"
 opener = { version = "0.7", features = ["reveal"] }
 parking_lot = "0.12"
@@ -60,8 +70,13 @@ shadow-zip-archive-core = { path = "crates/archive-core" }
 shadow-zip-archive-zip = { path = "crates/archive-zip" }
 shadow-zip-archive-7z = { path = "crates/archive-7z" }
 shadow-zip-archive-tar = { path = "crates/archive-tar" }
+shadow-zip-archive-stream = { path = "crates/archive-stream" }
+shadow-zip-archive-containers = { path = "crates/archive-containers" }
 shadow-zip-archive-rar = { path = "crates/archive-rar" }
+shadow-zip-archive-legacy = { path = "crates/archive-legacy" }
+shadow-zip-archive-images = { path = "crates/archive-images" }
 shadow-zip-archive-libarchive = { path = "crates/archive-libarchive" }
+shadow-zip-archive-encoded = { path = "crates/archive-encoded" }
 shadow-zip-preview = { path = "crates/preview" }
 shadow-zip-cache = { path = "crates/cache" }
 shadow-zip-i18n = { path = "crates/i18n" }

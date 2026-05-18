@@ -296,22 +296,22 @@ fn extract_write_steps() -> Vec<PipelineStep> {
     ]
 }
 
-pub trait ByteSource: Send {
+pub trait ByteSource {
     fn read_chunk(&mut self, buffer: &mut [u8]) -> io::Result<usize>;
 }
 
-pub trait ByteSink: Send {
+pub trait ByteSink {
     fn write_chunk(&mut self, bytes: &[u8]) -> io::Result<()>;
     fn finish(&mut self) -> io::Result<()>;
 }
 
-impl<T: Read + Send> ByteSource for T {
+impl<T: Read> ByteSource for T {
     fn read_chunk(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         self.read(buffer)
     }
 }
 
-impl<T: Write + Send> ByteSink for T {
+impl<T: Write> ByteSink for T {
     fn write_chunk(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.write_all(bytes)
     }

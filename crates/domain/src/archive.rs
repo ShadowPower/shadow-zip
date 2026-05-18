@@ -51,12 +51,58 @@ impl ArchiveSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArchiveFormat {
     Zip,
+    ZipX,
     SevenZip,
     Tar,
     TarGz,
     TarXz,
     TarZst,
+    TarBz,
+    TarBz2,
+    TarLzma,
+    TarLz,
+    TarZ,
+    TarBr,
     Rar,
+    Lzh,
+    Iso,
+    Gz,
+    Xz,
+    Ace,
+    Alz,
+    Arj,
+    Bh,
+    Egg,
+    Lha,
+    Pma,
+    Cab,
+    Compound,
+    Msi,
+    Deb,
+    Xpi,
+    Asar,
+    Nsis,
+    Udf,
+    Bin,
+    Img,
+    Isz,
+    Daa,
+    Br,
+    Bz,
+    Bz2,
+    Zstd,
+    Lz4,
+    Lz,
+    Lzma,
+    Z,
+    Wim,
+    Swm,
+    Zpaq,
+    Pea,
+    Aes,
+    Uu,
+    Uue,
+    Xxe,
     Unknown,
 }
 
@@ -64,14 +110,94 @@ impl fmt::Display for ArchiveFormat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Zip => "ZIP",
+            Self::ZipX => "ZIPX",
             Self::SevenZip => "7z",
             Self::Tar => "tar",
             Self::TarGz => "tar.gz",
             Self::TarXz => "tar.xz",
             Self::TarZst => "tar.zst",
+            Self::TarBz => "tar.bz",
+            Self::TarBz2 => "tar.bz2",
+            Self::TarLzma => "tar.lzma",
+            Self::TarLz => "tar.lz",
+            Self::TarZ => "tar.Z",
+            Self::TarBr => "tar.br",
             Self::Rar => "RAR",
+            Self::Lzh => "LZH",
+            Self::Iso => "ISO",
+            Self::Gz => "gzip",
+            Self::Xz => "xz",
+            Self::Ace => "ACE",
+            Self::Alz => "ALZ",
+            Self::Arj => "ARJ",
+            Self::Bh => "BH",
+            Self::Egg => "EGG",
+            Self::Lha => "LHA",
+            Self::Pma => "PMA",
+            Self::Cab => "CAB",
+            Self::Compound => "Compound",
+            Self::Msi => "MSI",
+            Self::Deb => "DEB",
+            Self::Xpi => "XPI",
+            Self::Asar => "ASAR",
+            Self::Nsis => "NSIS",
+            Self::Udf => "UDF",
+            Self::Bin => "BIN",
+            Self::Img => "IMG",
+            Self::Isz => "ISZ",
+            Self::Daa => "DAA",
+            Self::Br => "Brotli",
+            Self::Bz => "bzip",
+            Self::Bz2 => "bzip2",
+            Self::Zstd => "zstd",
+            Self::Lz4 => "LZ4",
+            Self::Lz => "lzip",
+            Self::Lzma => "LZMA",
+            Self::Z => "Unix compress",
+            Self::Wim => "WIM",
+            Self::Swm => "SWM",
+            Self::Zpaq => "ZPAQ",
+            Self::Pea => "PEA",
+            Self::Aes => "AES",
+            Self::Uu => "UU",
+            Self::Uue => "UUE",
+            Self::Xxe => "XXE",
             Self::Unknown => "unknown",
         })
+    }
+}
+
+impl ArchiveFormat {
+    pub fn is_tar_stream(self) -> bool {
+        matches!(
+            self,
+            Self::Tar
+                | Self::TarGz
+                | Self::TarXz
+                | Self::TarZst
+                | Self::TarBz
+                | Self::TarBz2
+                | Self::TarLzma
+                | Self::TarLz
+                | Self::TarZ
+                | Self::TarBr
+        )
+    }
+
+    pub fn is_single_file_stream(self) -> bool {
+        matches!(
+            self,
+            Self::Gz
+                | Self::Xz
+                | Self::Br
+                | Self::Bz
+                | Self::Bz2
+                | Self::Zstd
+                | Self::Lz4
+                | Self::Lz
+                | Self::Lzma
+                | Self::Z
+        )
     }
 }
 

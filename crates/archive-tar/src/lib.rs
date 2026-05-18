@@ -4,14 +4,12 @@ use std::{
     path::Path,
 };
 
-use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use shadow_zip_archive_core::{
     ArchiveBackend, EntryReader, InputScanner, OpenArchive, SafeWriter, ScannedInput, StreamLimits,
     create_pipeline, quick_test_pipeline, sequential_extract_pipeline,
 };
 use shadow_zip_domain::*;
 use tar::{Archive as TarReader, Builder as TarBuilder};
-use xz2::{read::XzDecoder, write::XzEncoder};
 
 pub struct TarBackend;
 
@@ -46,7 +44,7 @@ impl ArchiveBackend for TarBackend {
                 display_name: "tar archive".into(),
                 total_bytes: None,
                 entry_count: None,
-                codecs: tar_codecs(format),
+                codecs: tar_codecs(),
                 filters: Vec::new(),
                 is_solid: false,
                 is_encrypted: false,
@@ -73,12 +71,7 @@ impl ArchiveBackend for TarBackend {
 
     fn backend_capabilities(&self) -> BackendCapabilities {
         BackendCapabilities {
-            formats: vec![
-                ArchiveFormat::Tar,
-                ArchiveFormat::TarGz,
-                ArchiveFormat::TarXz,
-                ArchiveFormat::TarZst,
-            ],
+            formats: vec![ArchiveFormat::Tar],
             capabilities: tar_capabilities(),
         }
     }
@@ -203,14 +196,7 @@ impl TarArchive {
 
     fn open_reader(&self) -> Result<Box<dyn Read>, ArchiveError> {
         let file = File::open(self.source_path()?).map_err(io_error)?;
-        Ok(match self.info.format {
-            ArchiveFormat::TarGz => Box::new(GzDecoder::new(file)),
-            ArchiveFormat::TarXz => Box::new(XzDecoder::new(file)),
-            ArchiveFormat::TarZst => {
-                Box::new(zstd::stream::read::Decoder::new(file).map_err(io_error)?)
-            }
-            _ => Box::new(file),
-        })
+        Ok(Box::new(file))
     }
 
     fn read_listing(&self) -> Result<ArchiveListing, ArchiveError> {
@@ -283,10 +269,7 @@ impl TarArchive {
             if entry.header().entry_type().is_dir() {
                 writer.create_dir(&path)?;
             } else {
-                let mut bytes = Vec::new();
-                entry.read_to_end(&mut bytes).map_err(io_error)?;
-                let mut source = Cursor::new(bytes);
-                writer.write_stream(&path, &mut source, |_| Ok(()))?;
+                writer.write_stream(&path, &mut entry, |_| Ok(()))?;
             }
         }
 
@@ -299,9 +282,7 @@ impl TarArchive {
                 .map(|ids| ids.len())
                 .unwrap_or(listing.entries.len()),
         )
-        .native(sequential_extract_pipeline(tar_read_steps(
-            self.info.format,
-        ))))
+        .native(sequential_extract_pipeline(tar_read_steps())))
     }
 }
 
@@ -312,30 +293,15 @@ pub fn create_tar_archive(
 ) -> Result<(), ArchiveError> {
     let scanned = InputScanner::scan(inputs)?;
     let file = File::create(output).map_err(io_error)?;
-    match options.format {
-        ArchiveFormat::TarGz => {
-            let encoder = GzEncoder::new(file, Compression::default());
-            let encoder = write_tar_entries(encoder, &scanned)?;
-            encoder.finish().map_err(io_error)?;
-        }
-        ArchiveFormat::TarXz => {
-            let encoder = XzEncoder::new(file, options.compression_level.unwrap_or(6) as u32);
-            let encoder = write_tar_entries(encoder, &scanned)?;
-            encoder.finish().map_err(io_error)?;
-        }
-        ArchiveFormat::TarZst => {
-            let encoder = zstd::stream::write::Encoder::new(
-                file,
-                options.compression_level.unwrap_or(3) as i32,
-            )
-            .map_err(io_error)?;
-            let encoder = write_tar_entries(encoder, &scanned)?;
-            encoder.finish().map_err(io_error)?;
-        }
-        _ => {
-            let _ = write_tar_entries(file, &scanned)?;
-        }
+    if options.format != ArchiveFormat::Tar {
+        return Err(ArchiveError::new(
+            ArchiveErrorKind::UnsupportedFormat,
+            "tar backend only creates uncompressed .tar archives",
+        )
+        .with_backend("tar-stream")
+        .with_technical_detail(format!("requested_format={}", options.format)));
     }
+    let _ = write_tar_entries(file, &scanned)?;
     Ok(())
 }
 
@@ -358,35 +324,15 @@ fn write_tar_entries<W: Write>(writer: W, inputs: &[ScannedInput]) -> Result<W, 
 
 fn detect_tar_format(name: &str) -> ArchiveFormat {
     let name = name.to_ascii_lowercase();
-    if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
-        ArchiveFormat::TarGz
-    } else if name.ends_with(".tar.xz") || name.ends_with(".txz") {
-        ArchiveFormat::TarXz
-    } else if name.ends_with(".tar.zst") || name.ends_with(".tzst") {
-        ArchiveFormat::TarZst
-    } else if name.ends_with(".tar") {
+    if name.ends_with(".tar") {
         ArchiveFormat::Tar
     } else {
         ArchiveFormat::Unknown
     }
 }
 
-fn tar_read_steps(format: ArchiveFormat) -> Vec<PipelineStep> {
-    let mut steps = Vec::new();
-    match format {
-        ArchiveFormat::TarGz => steps.push(PipelineStep::StreamDecompress {
-            codec: CompressionMethod::Gzip,
-        }),
-        ArchiveFormat::TarXz => steps.push(PipelineStep::StreamDecompress {
-            codec: CompressionMethod::Xz,
-        }),
-        ArchiveFormat::TarZst => steps.push(PipelineStep::StreamDecompress {
-            codec: CompressionMethod::Zstandard,
-        }),
-        _ => {}
-    }
-    steps.push(PipelineStep::StreamTarEntries);
-    steps
+fn tar_read_steps() -> Vec<PipelineStep> {
+    vec![PipelineStep::StreamTarEntries]
 }
 
 fn tar_capabilities() -> ArchiveCapabilities {
@@ -406,13 +352,8 @@ fn tar_capabilities() -> ArchiveCapabilities {
     }
 }
 
-fn tar_codecs(format: ArchiveFormat) -> Vec<String> {
-    match format {
-        ArchiveFormat::TarGz => vec!["gzip".into()],
-        ArchiveFormat::TarXz => vec!["xz".into()],
-        ArchiveFormat::TarZst => vec!["zstd".into()],
-        _ => Vec::new(),
-    }
+fn tar_codecs() -> Vec<String> {
+    Vec::new()
 }
 
 fn io_error(error: std::io::Error) -> ArchiveError {

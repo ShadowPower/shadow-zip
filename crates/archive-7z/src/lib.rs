@@ -1,8 +1,14 @@
-use std::{io::Cursor, path::Path};
+use std::{
+    fs::{self, File},
+    io::{Cursor, Read, Write},
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use shadow_zip_archive_core::{
-    ArchiveBackend, EntryReader, OpenArchive, SafeWriter, StreamLimits, create_pipeline,
-    extension_confidence, quick_test_pipeline, random_access_extract_pipeline,
+    ArchiveBackend, ByteSource, EntryReader, InputScanner, OpenArchive, SafeWriter, ScannedInput,
+    StreamLimits, create_pipeline, extension_confidence, quick_test_pipeline,
+    random_access_extract_pipeline,
 };
 use shadow_zip_domain::*;
 
@@ -52,17 +58,22 @@ impl ArchiveBackend for SevenZipBackend {
         output: &Path,
         options: CreateOptions,
     ) -> Result<TaskPlan, ArchiveError> {
-        let plan = TaskPlan::new(TaskKind::Create, format!("Create {}", output.display()))
+        let mut plan = TaskPlan::new(TaskKind::Create, format!("Create 7z {}", output.display()))
             .estimated_entries(inputs.len())
             .native(create_pipeline());
-        Ok(if options.solid {
-            plan.warn(
-                "solid-access-cost",
-                "Solid archives make single-file preview and extraction slower",
-            )
-        } else {
-            plan
-        })
+        if options.solid {
+            plan = plan.warn(
+                "7z-solid",
+                "7z creation uses per-entry streams; solid archive creation is not enabled in this path",
+            );
+        }
+        if options.volume_size.is_some() {
+            plan = plan.warn(
+                "7z-volume",
+                "7z multi-volume output is emitted by splitting the completed native 7z stream",
+            );
+        }
+        Ok(plan)
     }
 
     fn backend_capabilities(&self) -> BackendCapabilities {
@@ -71,6 +82,36 @@ impl ArchiveBackend for SevenZipBackend {
             capabilities: seven_zip_capabilities(false),
         }
     }
+}
+
+pub fn create_7z_archive(
+    inputs: &[InputPath],
+    output: &Path,
+    options: CreateOptions,
+) -> Result<(), ArchiveError> {
+    let volume_size = options.volume_size;
+    let scanned = InputScanner::scan(inputs)?;
+    let write_target = if volume_size.is_some() {
+        temporary_7z_path(output)
+    } else {
+        output.to_path_buf()
+    };
+    let mut writer = sevenz_rust2::SevenZWriter::create(&write_target).map_err(map_7z_error)?;
+    writer.set_encrypt_header(options.encrypt_file_names && options.password.is_some());
+    writer.set_content_methods(seven_zip_methods(&options));
+    for input in &scanned {
+        push_scanned_entry(&mut writer, input)?;
+    }
+    writer.finish().map_err(map_7z_error)?;
+    if let Some(volume_size) = volume_size {
+        split_7z_volumes(&write_target, output, volume_size)?;
+        fs::remove_file(&write_target).map_err(|error| {
+            ArchiveError::new(ArchiveErrorKind::Io, "temporary 7z file cleanup failed")
+                .with_backend("7z")
+                .with_technical_detail(error.to_string())
+        })?;
+    }
+    Ok(())
 }
 
 struct SevenZipArchive {
@@ -264,10 +305,9 @@ impl SevenZipArchive {
                         .create_dir(&entry_path)
                         .map_err(archive_error_to_7z)?;
                 } else {
-                    let mut bytes = Vec::with_capacity(entry.size().min(16 * 1024 * 1024) as usize);
-                    std::io::copy(source, &mut bytes).map_err(sevenz_rust2::Error::io)?;
+                    let mut source = SevenZipEntrySource { inner: source };
                     writer
-                        .write_stream(&entry_path, &mut Cursor::new(bytes), |_| Ok(()))
+                        .write_stream(&entry_path, &mut source, |_| Ok(()))
                         .map_err(archive_error_to_7z)?;
                 }
                 Ok(true)
@@ -318,6 +358,16 @@ impl SevenZipArchive {
     }
 }
 
+struct SevenZipEntrySource<'a, R: std::io::Read + ?Sized> {
+    inner: &'a mut R,
+}
+
+impl<R: std::io::Read + ?Sized> ByteSource for SevenZipEntrySource<'_, R> {
+    fn read_chunk(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.inner.read(buffer)
+    }
+}
+
 fn password_from_option(password: Option<&String>) -> sevenz_rust2::Password {
     password
         .map(|password| sevenz_rust2::Password::from(password.as_str()))
@@ -326,6 +376,116 @@ fn password_from_option(password: Option<&String>) -> sevenz_rust2::Password {
 
 fn archive_error_to_7z(error: ArchiveError) -> sevenz_rust2::Error {
     sevenz_rust2::Error::io(std::io::Error::other(error.to_string()))
+}
+
+fn temporary_7z_path(output: &Path) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let file_name = output
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("archive.7z");
+    output.with_file_name(format!("{file_name}.{stamp}.tmp"))
+}
+
+fn split_7z_volumes(source: &Path, output: &Path, volume_size: u64) -> Result<(), ArchiveError> {
+    let mut input = File::open(source).map_err(|error| {
+        ArchiveError::new(ArchiveErrorKind::Io, "temporary 7z file open failed")
+            .with_backend("7z")
+            .with_technical_detail(error.to_string())
+    })?;
+    let base = volume_base_path(output);
+    let mut index = 1_u32;
+    let mut buffer = vec![0_u8; 1024 * 1024];
+    loop {
+        let part_path = numbered_volume_path(&base, index);
+        let mut part = File::create(&part_path).map_err(|error| {
+            ArchiveError::new(ArchiveErrorKind::Io, "7z volume file create failed")
+                .with_backend("7z")
+                .with_technical_detail(error.to_string())
+        })?;
+        let mut remaining = volume_size;
+        let mut wrote_any = false;
+        while remaining > 0 {
+            let chunk = buffer.len().min(remaining as usize);
+            let read = input.read(&mut buffer[..chunk]).map_err(|error| {
+                ArchiveError::new(ArchiveErrorKind::Io, "temporary 7z file read failed")
+                    .with_backend("7z")
+                    .with_technical_detail(error.to_string())
+            })?;
+            if read == 0 {
+                if !wrote_any {
+                    let _ = fs::remove_file(&part_path);
+                }
+                return Ok(());
+            }
+            part.write_all(&buffer[..read]).map_err(|error| {
+                ArchiveError::new(ArchiveErrorKind::Io, "7z volume file write failed")
+                    .with_backend("7z")
+                    .with_technical_detail(error.to_string())
+            })?;
+            remaining -= read as u64;
+            wrote_any = true;
+        }
+        index += 1;
+    }
+}
+
+fn volume_base_path(output: &Path) -> PathBuf {
+    let name = output
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("archive.7z");
+    if let Some(base) = name.strip_suffix(".001") {
+        output.with_file_name(base)
+    } else {
+        output.to_path_buf()
+    }
+}
+
+fn numbered_volume_path(base: &Path, index: u32) -> PathBuf {
+    let name = base
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("archive.7z");
+    base.with_file_name(format!("{name}.{index:03}"))
+}
+
+fn seven_zip_methods(options: &CreateOptions) -> Vec<sevenz_rust2::SevenZMethodConfiguration> {
+    let mut methods = Vec::new();
+    if let Some(password) = options.password.as_ref() {
+        methods.push(sevenz_rust2::AesEncoderOptions::new(password.as_str().into()).into());
+    }
+    methods.push(sevenz_rust2::SevenZMethod::LZMA2.into());
+    methods
+}
+
+fn push_scanned_entry(
+    writer: &mut sevenz_rust2::SevenZWriter<File>,
+    input: &ScannedInput,
+) -> Result<(), ArchiveError> {
+    let entry = sevenz_rust2::SevenZArchiveEntry::from_path(
+        &input.source_path,
+        input.archive_path.clone(),
+    );
+    if input.is_dir {
+        writer
+            .push_archive_entry::<&[u8]>(entry, None)
+            .map_err(map_7z_error)?;
+    } else {
+        let source = File::open(&input.source_path).map_err(|error| {
+            ArchiveError::new(ArchiveErrorKind::Io, "7z input file open failed")
+                .with_backend("7z")
+                .with_entry_path(input.archive_path.clone())
+                .with_technical_detail(error.to_string())
+        })?;
+        writer
+            .push_archive_entry(entry, Some(source))
+            .map_err(map_7z_error)?;
+    }
+    Ok(())
 }
 
 fn is_split_7z_volume(path: &Path) -> bool {
@@ -361,8 +521,8 @@ fn seven_zip_capabilities(solid: bool) -> ArchiveCapabilities {
         } else {
             CapabilityLevel::High
         },
-        create: CapabilityLevel::High,
-        update: CapabilityLevel::Medium,
+        create: CapabilityLevel::Full,
+        update: CapabilityLevel::Unsupported,
         random_access: if solid {
             CapabilityLevel::Limited
         } else {
@@ -372,7 +532,7 @@ fn seven_zip_capabilities(solid: bool) -> ArchiveCapabilities {
         password_write: CapabilityLevel::Full,
         header_encryption: CapabilityLevel::Full,
         multi_volume_read: CapabilityLevel::Medium,
-        multi_volume_write: CapabilityLevel::Medium,
+        multi_volume_write: CapabilityLevel::Limited,
         entry_stream_preview: if solid {
             CapabilityLevel::Limited
         } else {

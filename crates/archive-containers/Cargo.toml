@@ -1,0 +1,26 @@
+[package]
+name = "shadow-zip-archive-containers"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ar = "0.9"
+asar = { version = "0.3", default-features = false }
+bzip2 = "0.5"
+cab = "0.6"
+cfb = "0.14"
+flate2.workspace = true
+fs-err.workspace = true
+shadow-zip-archive-core.workspace = true
+shadow-zip-domain.workspace = true
+tar.workspace = true
+xz2.workspace = true
+zip.workspace = true
+zstd.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
